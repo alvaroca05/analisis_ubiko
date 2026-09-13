@@ -1,0 +1,25 @@
+# Python y Entornos
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+
+# Archivos de credenciales y secretos (NUNCA SUBIR A GITHUB)
+.env
+data/ubiko_session_auth.json
+
+# Base de datos local SQLite (la nube usa Supabase)
+data/ubiko_db.sqlite3
+
+# Capturas de pantalla o logs de depuración
+data/debug_*.png
+data/reports/
+*.log
+
+# IDE y Sistema Operativo
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
