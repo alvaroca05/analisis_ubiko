@@ -46,45 +46,61 @@ st.set_page_config(
 # Estilos CSS personalizados para temática deportiva profesional de alto rendimiento
 st.markdown("""
 <style>
+    /* Ajustes base y modo oscuro */
     .main {
         background-color: #0E1117;
     }
+
+    /* Contenedor fluido y márgenes adaptativos para no desperdiciar pantalla en móvil */
+    .block-container {
+        padding-top: 1.5rem !important;
+        padding-bottom: 2.5rem !important;
+        padding-left: 1rem !important;
+        padding-right: 1rem !important;
+        max-width: 100% !important;
+    }
+
+    /* Tarjetas de métricas KPIs responsivas */
     .metric-card {
         background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%);
         border: 1px solid #334155;
-        border-radius: 10px;
-        padding: 16px;
+        border-radius: 12px;
+        padding: 14px;
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
-        margin-bottom: 12px;
+        margin-bottom: 10px;
+        transition: transform 0.15s ease-in-out;
     }
     .metric-title {
         color: #94A3B8;
-        font-size: 0.82rem;
+        font-size: 0.80rem;
         font-weight: 600;
         text-transform: uppercase;
         letter-spacing: 0.05em;
     }
     .metric-value {
         color: #F8FAFC;
-        font-size: 1.7rem;
+        font-size: 1.6rem;
         font-weight: 700;
         margin-top: 4px;
     }
     .metric-subtitle {
         color: #64748B;
-        font-size: 0.78rem;
+        font-size: 0.75rem;
         margin-top: 4px;
     }
+
+    /* Caja de informes tácticos */
     .report-box {
         background-color: #111827;
         border: 1px solid #374151;
         border-radius: 8px;
-        padding: 24px;
+        padding: 16px;
         font-family: 'Courier New', Courier, monospace;
         white-space: pre-wrap;
         color: #E5E7EB;
         line-height: 1.5;
-        font-size: 0.90rem;
+        font-size: 0.85rem;
+        overflow-x: auto;
     }
     .badge {
         display: inline-block;
@@ -93,9 +109,67 @@ st.markdown("""
         font-size: 0.75rem;
         font-weight: bold;
     }
+
+    /* OPTIMIZACIÓN MULTIPLATAFORMA MÓVIL Y TABLET (Breakpoints < 768px) */
+    @media (max-width: 768px) {
+        .block-container {
+            padding-left: 0.6rem !important;
+            padding-right: 0.6rem !important;
+            padding-top: 1rem !important;
+        }
+
+        /* Títulos más compactos en móvil */
+        h1 {
+            font-size: 1.55rem !important;
+            line-height: 1.25 !important;
+        }
+        h2 {
+            font-size: 1.30rem !important;
+        }
+        h3 {
+            font-size: 1.10rem !important;
+        }
+
+        /* Valores de métricas proporcionados a pantalla vertical */
+        .metric-value {
+            font-size: 1.4rem !important;
+        }
+        .metric-card {
+            padding: 10px 12px !important;
+            margin-bottom: 8px !important;
+        }
+
+        /* Forzar que las columnas de Streamlit en móvil mantengan ancho utilizable y flexwrap */
+        [data-testid="column"] {
+            min-width: 100% !important;
+            flex: 1 1 100% !important;
+            margin-bottom: 0.5rem;
+        }
+
+        /* Botones táctiles grandes y fáciles de pulsar con el pulgar */
+        button[kind="primary"], button[kind="secondary"], .stButton > button {
+            min-height: 46px !important;
+            font-size: 0.95rem !important;
+            border-radius: 10px !important;
+        }
+
+        /* Scroll horizontal fluido para tablas sin deformar la pantalla */
+        [data-testid="stDataFrame"], [data-testid="stTable"] {
+            overflow-x: auto !important;
+            -webkit-overflow-scrolling: touch;
+            width: 100% !important;
+        }
+
+        /* Ajuste de gráficos Plotly en móvil */
+        .js-plotly-plot, .plot-container {
+            max-width: 100% !important;
+            overflow-x: hidden !important;
+        }
+    }
 </style>
 
 <!-- Metadatos y soporte PWA (Progressive Web App) para instalación en Móvil / Tablet -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">

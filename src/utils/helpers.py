@@ -25,29 +25,29 @@ def render_semaforo_legend_html() -> str:
     Retorna el bloque HTML estilizado de la leyenda del semáforo fisiológico (ACWR y riesgo lesional).
     """
     return """
-    <div style="background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%); border: 1px solid #334155; border-radius: 10px; padding: 14px 18px; margin: 12px 0 16px 0;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px solid #334155; padding-bottom: 8px;">
-            <span style="font-weight: 700; color: #F8FAFC; font-size: 0.95rem; display: flex; align-items: center; gap: 8px;">
-                🚦 <b>Leyenda del Semáforo Fisiológico & Estado de Carga</b>
+    <div style="background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%); border: 1px solid #334155; border-radius: 10px; padding: 12px 14px; margin: 10px 0 14px 0;">
+        <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; margin-bottom: 8px; border-bottom: 1px solid #334155; padding-bottom: 6px; gap: 4px;">
+            <span style="font-weight: 700; color: #F8FAFC; font-size: 0.90rem; display: flex; align-items: center; gap: 6px;">
+                🚦 <b>Leyenda del Semáforo Fisiológico</b>
             </span>
-            <span style="font-size: 0.78rem; color: #94A3B8;">Modelo ACWR EWMA (Gabbett, 2016 & Williams et al., 2017)</span>
+            <span style="font-size: 0.72rem; color: #94A3B8;">Modelo ACWR EWMA (Gabbett & Williams)</span>
         </div>
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; font-size: 0.83rem;">
-            <div style="background: rgba(59, 130, 246, 0.12); border-left: 4px solid #3B82F6; padding: 8px 12px; border-radius: 6px;">
-                <b style="color: #60A5FA; font-size: 0.88rem;">🔵 Subentrenamiento (&lt; 0.80)</b><br>
-                <span style="color: #CBD5E1;">Carga aguda insuficiente respecto a la crónica. Riesgo de desadaptación y pérdida de forma física.</span>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; font-size: 0.78rem;">
+            <div style="background: rgba(59, 130, 246, 0.12); border-left: 3px solid #3B82F6; padding: 6px 10px; border-radius: 6px;">
+                <b style="color: #60A5FA; font-size: 0.82rem;">🔵 Subentrenamiento (&lt; 0.80)</b><br>
+                <span style="color: #CBD5E1;">Carga insuficiente. Riesgo de desadaptación.</span>
             </div>
-            <div style="background: rgba(16, 185, 129, 0.12); border-left: 4px solid #10B981; padding: 8px 12px; border-radius: 6px;">
-                <b style="color: #34D399; font-size: 0.88rem;">🟢 Óptimo / Sweet Spot (0.80 - 1.30)</b><br>
-                <span style="color: #CBD5E1;">Zona segura de adaptación positiva. Máximo estímulo de rendimiento con mínimo riesgo de lesión.</span>
+            <div style="background: rgba(16, 185, 129, 0.12); border-left: 3px solid #10B981; padding: 6px 10px; border-radius: 6px;">
+                <b style="color: #34D399; font-size: 0.82rem;">🟢 Óptimo (0.80 - 1.30)</b><br>
+                <span style="color: #CBD5E1;">Zona segura y óptima de rendimiento.</span>
             </div>
-            <div style="background: rgba(245, 158, 11, 0.12); border-left: 4px solid #F59E0B; padding: 8px 12px; border-radius: 6px;">
-                <b style="color: #FBBF24; font-size: 0.88rem;">🟡 Precaución / Fatiga (1.30 - 1.50)</b><br>
-                <span style="color: #CBD5E1;">Pico agudo de carga. Estado de fatiga acumulada; vigilar descanso, nutrición y recuperación.</span>
+            <div style="background: rgba(245, 158, 11, 0.12); border-left: 3px solid #F59E0B; padding: 6px 10px; border-radius: 6px;">
+                <b style="color: #FBBF24; font-size: 0.82rem;">🟡 Precaución (1.30 - 1.50)</b><br>
+                <span style="color: #CBD5E1;">Fatiga acumulada. Vigilar recuperación.</span>
             </div>
-            <div style="background: rgba(239, 68, 68, 0.12); border-left: 4px solid #EF4444; padding: 8px 12px; border-radius: 6px;">
-                <b style="color: #F87171; font-size: 0.88rem;">🔴 Sobrecarga / Peligro (&gt; 1.50)</b><br>
-                <span style="color: #CBD5E1;">Zona crítica ("Danger Zone"). Riesgo lesional aumentado x2 a x4. Recomendada descarga o rotación.</span>
+            <div style="background: rgba(239, 68, 68, 0.12); border-left: 3px solid #EF4444; padding: 6px 10px; border-radius: 6px;">
+                <b style="color: #F87171; font-size: 0.82rem;">🔴 Peligro / Sobrecarga (&gt; 1.50)</b><br>
+                <span style="color: #CBD5E1;">Riesgo alto de lesión. Rotación recomendada.</span>
             </div>
         </div>
     </div>
@@ -164,10 +164,11 @@ def create_acwr_longitudinal_chart(df_acwr: pd.DataFrame, player_name: str) -> g
 
     fig.update_layout(
         template="plotly_dark",
-        height=620,
-        margin=dict(l=40, r=40, t=60, b=40),
+        autosize=True,
+        height=540,
+        margin=dict(l=20, r=20, t=50, b=30),
         hovermode="x unified",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=10))
     )
 
     fig.update_yaxes(title_text="Distancia (m)", row=1, col=1)
@@ -207,11 +208,12 @@ def create_compliance_chart(df_compliance: pd.DataFrame) -> go.Figure:
     fig.update_layout(
         title="Distancia Total (DT): Real vs. Planificado por Demarcación",
         template="plotly_dark",
+        autosize=True,
         barmode="group",
-        height=380,
-        margin=dict(l=40, r=40, t=50, b=40),
+        height=360,
+        margin=dict(l=20, r=20, t=40, b=30),
         yaxis_title="Metros",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=10))
     )
 
     return fig
@@ -251,11 +253,12 @@ def create_zscore_chart(df_metrics: pd.DataFrame, metric_col: str = "hsr_distanc
     fig.update_layout(
         title=f"Z-Score Posicional de {metric_label} (Identificación de Desviaciones)",
         template="plotly_dark",
-        height=400,
+        autosize=True,
+        height=380,
         yaxis_title="Z-Score (Desviaciones estándar)",
         xaxis_tickangle=-45,
-        margin=dict(l=40, r=40, t=50, b=80),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        margin=dict(l=20, r=20, t=40, b=70),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=10))
     )
 
     return fig
