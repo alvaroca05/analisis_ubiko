@@ -95,12 +95,40 @@ class UbikoSyncService:
                 "message": "Playwright no está disponible. Ejecuta: pip install playwright && playwright install chromium"
             }
 
+        import subprocess
+
+        # En Linux o contenedores cloud sin pantalla gráfica ($DISPLAY), forzar headless=True
+        is_headless = self.headless
+        if os.name != "nt" and not os.getenv("DISPLAY"):
+            is_headless = True
+
+        launch_args = [
+            "--start-maximized",
+            "--disable-blink-features=AutomationControlled",
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--disable-dev-shm-usage"
+        ]
+
         try:
             with sync_playwright() as p:
-                browser = p.chromium.launch(
-                    headless=self.headless,
-                    args=["--start-maximized", "--disable-blink-features=AutomationControlled"]
-                )
+                try:
+                    browser = p.chromium.launch(
+                        headless=is_headless,
+                        args=launch_args
+                    )
+                except Exception as e_launch:
+                    err_str = str(e_launch).lower()
+                    if "executable doesn't exist" in err_str or "playwright install" in err_str:
+                        print("[UBIKO] Descargando e instalando Chromium para Playwright...")
+                        subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
+                        browser = p.chromium.launch(
+                            headless=is_headless,
+                            args=launch_args
+                        )
+                    else:
+                        raise e_launch
+
                 try:
                     return self._execute_session_fetch(browser, force=force, min_date=min_date)
                 finally:

@@ -4,6 +4,7 @@ Trabajo de Fin de Grado (TFG) - Ingeniería Informática.
 Interfaz interactiva 100% Python desarrollada con Streamlit.
 """
 
+import os
 from datetime import date, datetime
 import time
 import streamlit as st
@@ -372,7 +373,15 @@ with st.sidebar:
     sync_from_date = st.date_input("Recopilar desde fecha:", value=date(2026, 9, 3), key="sidebar_sync_date")
     force_sync = st.checkbox("Forzar re-descarga", value=False, key="sidebar_force_sync")
 
-    visible_sync = st.checkbox("Mostrar navegador", value=True, help="Abre la ventana de Chromium para ver el proceso en vivo.")
+    is_windows = os.name == "nt"
+    visible_sync = st.checkbox(
+        "Mostrar navegador",
+        value=is_windows,
+        help="Abre la ventana de Chromium para ver la extracción en vivo (solo disponible en tu PC local)."
+    ) if is_windows else False
+
+    if not is_windows:
+        st.caption("☁️ Modo Cloud: La sincronización se ejecuta en segundo plano (headless).")
 
     if st.button("🚀 Sincronizar Sesiones Ahora", use_container_width=True):
         with st.spinner(f"Conectando a UBIKO Web y recopilando sesiones desde {sync_from_date.strftime('%d/%m/%Y')}..."):
