@@ -614,11 +614,27 @@ def calculate_session_summary(session: Session, session_id: int, club_id: int = 
         "mean_srpe": float(srpe_valid.mean()) if not srpe_valid.empty else None
     }
 
+    # Cargar objetivos teóricos por posición para comparativas tácticas
+    target_objs = session.query(TargetLoad).filter(
+        TargetLoad.microcycle_day == sess_info.microcycle_day,
+        TargetLoad.club_id == club_id
+    ).all()
+    targets_dict = {
+        t.position: {
+            "target_td": t.target_total_distance,
+            "target_hsr": t.target_hsr_distance,
+            "target_hmld": t.target_hmld,
+            "target_eff": t.target_efforts
+        }
+        for t in target_objs
+    }
+
     return {
         "session": sess_info,
         "metrics": df_metrics,
         "team_kpis": team_kpis,
-        "compliance_indiv": df_comp_indiv
+        "compliance_indiv": df_comp_indiv,
+        "targets": targets_dict
     }
 
 

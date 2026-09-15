@@ -418,10 +418,14 @@ if menu == "📊 Panel de Sesión & Semáforo":
 
     summary = get_cached_session_summary(selected_session_id)
 
+    if not summary or "session" not in summary:
+        st.warning("No se pudieron cargar los datos de la sesión seleccionada.")
+        st.stop()
+
     sess = summary["session"]
-    df_metrics = summary["metrics"]
-    team_kpis = summary["team_kpis"]
-    targets = summary["targets"]
+    df_metrics = summary.get("metrics", pd.DataFrame())
+    team_kpis = summary.get("team_kpis", {})
+    targets = summary.get("targets", {})
 
     # Cabecera de la sesión
     st.title(f"Sesión: {sess.name}")
