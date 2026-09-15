@@ -567,6 +567,12 @@ def calculate_session_summary(session: Session, session_id: int, club_id: int = 
             on="player_id",
             how="left"
         )
+    else:
+        df_metrics["acute_load"] = 0.0
+        df_metrics["chronic_load"] = 0.0
+        df_metrics["acwr"] = 1.0
+        df_metrics["acwr_status"] = "Óptimo Sweet Spot (0.80-1.30)"
+        df_metrics["acwr_color"] = "#10B981"
 
     # Calcular sRPE de Foster
     df_metrics["srpe"] = df_metrics.apply(
@@ -587,6 +593,8 @@ def calculate_session_summary(session: Session, session_id: int, club_id: int = 
             on="player_id",
             how="left"
         )
+    else:
+        df_metrics["compliance_pct"] = 100.0
 
     rpe_valid = df_metrics["rpe"].dropna()
     rpe_valid = rpe_valid[rpe_valid > 0]

@@ -515,6 +515,11 @@ if menu == "📊 Panel de Sesión & Semáforo":
     st.markdown("### 🚦 Semáforo de Fatiga y Riesgo Lesional (ACWR)")
     st.caption("Control de fatiga aguda acumulada sobre aptitud física crónica (Gabbett EWMA).")
 
+    if "acwr" not in df_metrics.columns:
+        df_metrics["acwr"] = 1.0
+    if "acwr_status" not in df_metrics.columns:
+        df_metrics["acwr_status"] = "Óptimo Sweet Spot (0.80-1.30)"
+
     danger_players = df_metrics[df_metrics["acwr"] > 1.5]
     caution_players = df_metrics[(df_metrics["acwr"] > 1.3) & (df_metrics["acwr"] <= 1.5)]
     optimal_players = df_metrics[(df_metrics["acwr"] >= 0.8) & (df_metrics["acwr"] <= 1.3)]
@@ -671,6 +676,21 @@ if menu == "📊 Panel de Sesión & Semáforo":
             """)
 
     st.subheader(f"Telemetría GPS Completa de la Sesión ({len(df_filtered)} jugadores)")
+
+    # Asegurar que todas las columnas necesarias existan en el DataFrame
+    if "compliance_pct" in df_filtered.columns:
+        df_filtered["global_compliance"] = df_filtered["compliance_pct"].fillna(100.0)
+    elif "global_compliance" not in df_filtered.columns:
+        df_filtered["global_compliance"] = 100.0
+
+    if "acwr" not in df_filtered.columns:
+        df_filtered["acwr"] = 1.0
+    if "acwr_status" not in df_filtered.columns:
+        df_filtered["acwr_status"] = "Óptimo Sweet Spot (0.80-1.30)"
+
+    for col_req in ["dorsal", "player_name", "position", "total_distance", "hsr_distance", "hmld", "acc_dec_eff", "max_speed"]:
+        if col_req not in df_filtered.columns:
+            df_filtered[col_req] = 0
 
     has_rpe = "rpe" in df_filtered.columns and df_filtered["rpe"].dropna().count() > 0
     if has_rpe:
