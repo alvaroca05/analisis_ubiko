@@ -912,7 +912,7 @@ elif menu == "🏟️ Referencia Partidos (Excel P.F.)":
     with col_m1:
         labels_list = list(match_dict.keys())
         curr_label = st.session_state.get("active_ref_match_label")
-        default_idx = labels_list.index(curr_label) if curr_label in labels_list else 0
+        default_idx = labels_list.index(curr_label) if curr_label in labels_list else (1 if len(labels_list) > 1 else 0)
         selected_match_label = st.selectbox(
             "Seleccionar Partido para Visualizar / Bloque:",
             labels_list,
@@ -1086,7 +1086,7 @@ elif menu == "📋 Planificación Pre-Sesión":
     with col_cfg0:
         curr_label = st.session_state.get("active_ref_match_label")
         labels_list = list(match_dict.keys())
-        default_idx = labels_list.index(curr_label) if curr_label in labels_list else 0
+        default_idx = labels_list.index(curr_label) if curr_label in labels_list else (1 if len(labels_list) > 1 else 0)
         sel_ref_label = st.selectbox(
             "Partido de Referencia (Base 100%):",
             labels_list,

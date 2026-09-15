@@ -239,24 +239,45 @@ def get_rpe_category(rpe_val: Optional[float]) -> Tuple[str, str]:
         return "Máximo / Extenuante", "#991B1B"
 
 
+def is_official_league_match(session: TrainingSession) -> bool:
+    """
+    Filtra estrictamente para que SOLO se consideren Partidos Oficiales de Liga regular:
+    - Excluye entrenamientos (incluso si tienen día 'MD' o 'Pre-partido').
+    - Excluye sesiones y amistosos de pretemporada (agosto o con etiqueta PRETEMPORADA).
+    """
+    name_upper = (session.name or "").upper().strip()
+
+    # 1. Excluir entrenamientos y pretemporada
+    if any(tag in name_upper for tag in ["PRETEMPORADA", "PRE-TEMPORADA", "PRE_PARTIDO", "PRE-PARTIDO", "ENTRENAMIENTO", "COMPENSATORIO"]):
+        return False
+
+    # 2. Excluir amistosos de pretemporada disputados en agosto (Granada B, Linares, Pozoblanco, etc.)
+    if session.date and session.date < date(2026, 9, 1):
+        return False
+
+    # 3. Debe ser tipo 'Partido' o microciclo 'MD'
+    if session.session_type != "Partido" and session.microcycle_day != "MD":
+        return False
+
+    return True
+
+
 # ==============================================================================
 # 1. GESTIÓN DEL "PARTIDO DE MÁXIMA EXIGENCIA" (CARGA 100% DINÁMICA INDIVIDUAL)
 # ==============================================================================
 
 def sync_and_update_player_match_peaks(db: Session, club_id: int = DEFAULT_CLUB_ID) -> Dict[str, Any]:
     """
-    Examina todos los partidos oficiales (session_type='Partido' o microcycle_day='MD') registrados en el club.
+    Examina todos los partidos oficiales de Liga regular (session_type='Partido' o microcycle_day='MD') del club.
     Para cada jugador:
-    1. Localiza sus valores máximos alcanzados en partido (DT, HSR, Sprint, HMLD, AC.E, Vmax).
-    2. Si en semanas posteriores un nuevo partido supera esos máximos, actualiza automáticamente
+    1. Localiza sus valores máximos alcanzados en partido de liga (DT, HSR, Sprint, HMLD, AC.E, Vmax).
+    2. Si en jornadas posteriores un nuevo partido supera esos máximos, actualiza automáticamente
        ese nuevo techo del 100% en la tabla `player_match_peaks`.
-    3. Si el jugador aún no tiene partidos registrados, inicializa techos basados en sus referencias
-       posicionales estándar para que el cálculo nunca quede en blanco.
     """
     players = db.query(Player).filter(Player.club_id == club_id, Player.active == True).all()
 
-    # Partidos del club ordenados cronológicamente
-    matches = (
+    # Partidos oficiales de Liga del club ordenados cronológicamente
+    candidate_sessions = (
         db.query(TrainingSession)
         .filter(
             TrainingSession.club_id == club_id,
@@ -265,6 +286,7 @@ def sync_and_update_player_match_peaks(db: Session, club_id: int = DEFAULT_CLUB_
         .order_by(TrainingSession.date.asc())
         .all()
     )
+    matches = [m for m in candidate_sessions if is_official_league_match(m)]
 
     match_ids = [m.id for m in matches]
     match_dict = {m.id: m for m in matches}
@@ -1034,12 +1056,14 @@ def calculate_compliance_table(df_metrics: pd.DataFrame, targets_dict: Optional[
 
 def get_all_reference_matches(db: Session, club_id: int = DEFAULT_CLUB_ID) -> List[Dict[str, Any]]:
     """
-    Recupera todos los partidos oficiales registrados en el club (session_type='Partido' o microcycle_day='MD').
-    Filtra y deduplica para mostrar exclusivamente los partidos oficiales reales importados:
-    'PARTIDO 1: CP MIJAS LAS LAGUNAS (06/09/2026)', 'PARTIDO 2: RECREATIVO DE HUELVA (20/09/2026)', etc.,
+    Recupera exclusivamente los partidos oficiales de Liga regular (Temporada 26/27).
+    Filtra y excluye cualquier sesión de pretemporada, entrenamientos o amistosos previos.
+    Formato exacto solicitado:
+    '🏟️ Jornada 1: Partido contra CP Mijas Las Lagunas (06/09/2026)',
+    '🏟️ Jornada 2: Partido contra Recreativo de Huelva (20/09/2026)', etc.,
     además del bloque virtual '🏆 PARTIDO RÉCORD CONSOLIDADO (100% Individual por Jugador)'.
     """
-    matches = (
+    all_sessions = (
         db.query(TrainingSession)
         .filter(
             TrainingSession.club_id == club_id,
@@ -1048,6 +1072,35 @@ def get_all_reference_matches(db: Session, club_id: int = DEFAULT_CLUB_ID) -> Li
         .order_by(TrainingSession.date.asc())
         .all()
     )
+
+    # Filtrar exclusivamente partidos oficiales de Liga (excluyendo pretemporada y entrenamientos)
+    league_sessions = [s for s in all_sessions if is_official_league_match(s)]
+
+    # Deduplicar por rival / fecha, priorizando la sesión oficial importada de Ubiko con datos reales
+    deduped_matches = {}
+    for s in league_sessions:
+        p_count = db.query(PlayerMetric).filter(PlayerMetric.session_id == s.id).count()
+        if p_count == 0:
+            continue
+
+        s_upper = s.name.upper()
+        if "MIJAS" in s_upper or "LAGUNAS" in s_upper:
+            key = "MIJAS"
+        elif "RECREATIVO" in s_upper or "HUELVA" in s_upper:
+            key = "HUELVA"
+        else:
+            key = str(s.date)
+
+        is_ubiko_import = "FÚTBOL 11" in s_upper or "FUTBOL 11" in s_upper or "CONTRA" in s_upper
+        score = p_count + (100 if is_ubiko_import else 0)
+
+        if key not in deduped_matches:
+            deduped_matches[key] = (s, score)
+        else:
+            if score > deduped_matches[key][1]:
+                deduped_matches[key] = (s, score)
+
+    sorted_league_matches = sorted([item[0] for item in deduped_matches.values()], key=lambda x: x.date)
 
     res: List[Dict[str, Any]] = []
 
@@ -1063,41 +1116,31 @@ def get_all_reference_matches(db: Session, club_id: int = DEFAULT_CLUB_ID) -> Li
         "total_distance_km": 0.0
     })
 
-    # Filtrar y deduplicar partidos priorizando los que contienen nombres oficiales de rivales
-    official_matches = []
-    other_matches = []
-    for m in matches:
-        p_count = db.query(PlayerMetric).filter(PlayerMetric.session_id == m.id).count()
-        if p_count == 0:
-            continue
-        c_name = m.name.upper()
-        if any(w in c_name for w in ["MIJAS", "RECREATIVO", "HUELVA", "LAGUNAS", "CONTRA"]):
-            official_matches.append(m)
-        else:
-            other_matches.append(m)
-
-    official_dates = {m.date for m in official_matches}
-    candidate_matches = official_matches + [m for m in other_matches if m.date not in official_dates]
-    candidate_matches.sort(key=lambda x: x.date)
-
-    for idx, m in enumerate(candidate_matches, 1):
+    for idx, m in enumerate(sorted_league_matches, 1):
         p_count = db.query(PlayerMetric).filter(PlayerMetric.session_id == m.id).count()
         tot_dist_m = db.query(func.sum(PlayerMetric.total_distance)).filter(PlayerMetric.session_id == m.id).scalar() or 0.0
 
         clean_name = m.name.upper()
-        if "MIJAS" in clean_name:
-            label_prefix = f"PARTIDO {idx}: CP MIJAS LAS LAGUNAS"
+        if "MIJAS" in clean_name or "LAGUNAS" in clean_name:
+            opponent = "CP Mijas Las Lagunas"
         elif "RECREATIVO" in clean_name or "HUELVA" in clean_name:
-            label_prefix = f"PARTIDO {idx}: RECREATIVO DE HUELVA"
+            opponent = "Recreativo de Huelva"
         else:
-            label_prefix = f"PARTIDO {idx}: {m.name}"
+            if "CONTRA" in clean_name:
+                parts = m.name.split("contra")
+                opponent = parts[-1].split("_")[0].strip()
+            else:
+                opponent = m.name.strip()
+
+        # Formato exacto: "Jornada 1: Partido contra X"
+        label = f"🏟️ Jornada {idx}: Partido contra {opponent} ({m.date.strftime('%d/%m/%Y')})"
 
         res.append({
             "session_id": m.id,
             "key": f"MATCH_{m.id}",
             "order": idx,
             "name": m.name,
-            "label": f"🏟️ {label_prefix} ({m.date.strftime('%d/%m/%Y')})",
+            "label": label,
             "date": m.date,
             "num_players": p_count,
             "total_distance_km": round(tot_dist_m / 1000.0, 2)
