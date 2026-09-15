@@ -621,10 +621,10 @@ def calculate_session_summary(session: Session, session_id: int, club_id: int = 
     ).all()
     targets_dict = {
         t.position: {
-            "target_td": t.target_total_distance,
-            "target_hsr": t.target_hsr_distance,
-            "target_hmld": t.target_hmld,
-            "target_eff": t.target_efforts
+            "target_td": getattr(t, "target_td", 0.0),
+            "target_hsr": getattr(t, "target_hsr", 0.0),
+            "target_hmld": getattr(t, "target_hmld", 0.0),
+            "target_eff": (getattr(t, "target_acc_eff", 0) or 0) + (getattr(t, "target_dec_eff", 0) or 0)
         }
         for t in target_objs
     }

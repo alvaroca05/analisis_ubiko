@@ -169,6 +169,18 @@ class TargetLoad(Base):
     target_acc_eff = Column(Integer, nullable=False)  # Aceleraciones eficaces planificadas
     target_dec_eff = Column(Integer, nullable=False)  # Desaceleraciones eficaces planificadas
 
+    @property
+    def target_efforts(self) -> int:
+        return (self.target_acc_eff or 0) + (self.target_dec_eff or 0)
+
+    @property
+    def target_total_distance(self) -> float:
+        return self.target_td
+
+    @property
+    def target_hsr_distance(self) -> float:
+        return self.target_hsr
+
     def __repr__(self):
         return f"<TargetLoad(day='{self.microcycle_day}', position='{self.position}', TD={self.target_td}m, club_id={self.club_id})>"
 
