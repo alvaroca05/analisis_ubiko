@@ -110,6 +110,8 @@ MICROCYCLE_MATCH_TARGETS = {
     "MD-4": {
         "primary_metric": "acc_dec_eff",
         "primary_label": "AC.E (Acel.+Desacel. Eficaces)",
+        "key_label": "AC.E (Acel.+Desacel. Eficaces)",
+        "description": "Tensión y Fuerza neuromuscular (Esfuerzos máximos de aceleración y deceleración)",
         "target_pct": 92.5,     # 90% - 95%
         "pct_td": 0.58,
         "pct_hsr": 0.40,
@@ -119,6 +121,8 @@ MICROCYCLE_MATCH_TARGETS = {
     "MD-3": {
         "primary_metric": "total_distance",
         "primary_label": "Distancia Total (DT)",
+        "key_label": "Distancia Total (DT)",
+        "description": "Resistencia y Duración táctica (Máximo volumen acumulado)",
         "target_pct": 82.5,     # 80% - 85%
         "pct_td": 0.825,
         "pct_hsr": 0.65,
@@ -128,6 +132,8 @@ MICROCYCLE_MATCH_TARGETS = {
     "MD-2": {
         "primary_metric": "hsr_distance",
         "primary_label": "HSR (>21 km/h)",
+        "key_label": "HSR (>21 km/h)",
+        "description": "Velocidad y Reactividad neuromuscular (Picos de alta intensidad)",
         "target_pct": 70.0,     # 65% - 75%
         "pct_td": 0.52,
         "pct_hsr": 0.70,
@@ -137,6 +143,8 @@ MICROCYCLE_MATCH_TARGETS = {
     "MD-1": {
         "primary_metric": "total_distance",
         "primary_label": "Distancia Total (Activación)",
+        "key_label": "Distancia Total (Activación)",
+        "description": "Activación y Balón Parado (Volumen mínimo, frescura para el partido)",
         "target_pct": 45.0,     # 40% - 50%
         "pct_td": 0.45,
         "pct_hsr": 0.25,
@@ -146,6 +154,8 @@ MICROCYCLE_MATCH_TARGETS = {
     "MD": {
         "primary_metric": "total_distance",
         "primary_label": "Partido (100% Referencia)",
+        "key_label": "Partido (100% Referencia)",
+        "description": "Competición Oficial (100% de máxima exigencia)",
         "target_pct": 100.0,
         "pct_td": 1.00,
         "pct_hsr": 1.00,

@@ -246,20 +246,20 @@ def auto_check_ubiko_sessions():
             latest_sess = db.query(TrainingSession).order_by(TrainingSession.date.desc()).first()
             latest_date = latest_sess.date if latest_sess else date(2026, 9, 3)
 
-        # Si la última sesión no es de hoy, comprobar en UBIKO Cloud
-        if latest_date < date.today():
-            try:
-                import ubiko_sync
-                with st.spinner("🔄 Comprobando automáticamente nuevas sesiones en UBIKO Cloud..."):
-                    res = ubiko_sync.sync_latest_session(headless=True, force=False, min_date=latest_date)
-                    if res.get("success") and res.get("synced_count", 0) > 0:
-                        st.session_state["auto_sync_status"] = f"⚽ ¡{res['synced_count']} nueva(s) sesión(es) descargada(s) y sincronizada(s) desde UBIKO!"
-                        st.cache_data.clear()
-                    else:
-                        st.session_state["auto_sync_status"] = "✅ Sesiones UBIKO al día. Sin descargas pendientes."
-            except Exception as e_sync:
-                # Silencioso y tolerante a fallos para no interrumpir el uso si no hay conexión exterior
-                st.session_state["auto_sync_status"] = f"ℹ️ Modo offline / Sesiones locales al día."
+        # Comprobar si falta alguna sesión en UBIKO Cloud desde el inicio de la temporada
+        try:
+            import ubiko_sync
+            with st.spinner("🔄 Comprobando sesiones en UBIKO Cloud..."):
+                res = ubiko_sync.sync_latest_session(headless=True, force=False, min_date=date(2026, 8, 1))
+                if res.get("success") and res.get("synced_count", 0) > 0:
+                    st.session_state["auto_sync_status"] = f"⚽ ¡{res['synced_count']} nueva(s) sesión(es) descargada(s) y sincronizada(s) desde UBIKO!"
+                    st.cache_data.clear()
+                elif res.get("success"):
+                    st.session_state["auto_sync_status"] = "✅ Sesiones UBIKO al día. Sin descargas pendientes."
+                else:
+                    st.session_state["auto_sync_status"] = f"ℹ️ {res.get('message', 'Sincroniza desde tu PC local.')}"
+        except Exception as e_sync:
+            st.session_state["auto_sync_status"] = "ℹ️ Sincronizador en la nube en espera. Sincroniza desde tu PC local."
 
 
 # Ejecutar comprobación automática al abrir la app
@@ -548,12 +548,15 @@ if menu == "📊 Panel de Sesión & Semáforo":
     # 2. SEMÁFORO DE CUMPLIMIENTO INDIVIDUAL DEL DÍA (PARTIDO DE MÁXIMA EXIGENCIA)
     # ========================================================
     df_indiv_compliance = get_cached_individual_compliance(selected_session_id)
-    day_cfg = MICROCYCLE_MATCH_TARGETS.get(sess.microcycle_day, MICROCYCLE_MATCH_TARGETS["MD"])
+    day_cfg = MICROCYCLE_MATCH_TARGETS.get(sess.microcycle_day, MICROCYCLE_MATCH_TARGETS.get("MD", {}))
+    day_desc = day_cfg.get("description", MICROCYCLE_DESCRIPTIONS.get(sess.microcycle_day, "Trabajo específico del microciclo"))
+    day_metric_label = day_cfg.get("key_label", day_cfg.get("primary_label", "Carga clave"))
+    day_pct = day_cfg.get("target_pct", 100.0)
 
     st.markdown(f"### 🎯 Semáforo de Cumplimiento Individual del Día ({sess.microcycle_day})")
     st.markdown(
-        f"**Enfoque de prescripción:** {day_cfg['description']} | "
-        f"Métrica diana: **{day_cfg['key_label']}** (Prescrito: **{day_cfg['target_pct']}%** del Partido de Máxima Exigencia individual)."
+        f"**Enfoque de prescripción:** {day_desc} | "
+        f"Métrica diana: **{day_metric_label}** (Prescrito: **{day_pct}%** del Partido de Máxima Exigencia individual)."
     )
 
     if not df_indiv_compliance.empty:
@@ -581,8 +584,8 @@ if menu == "📊 Panel de Sesión & Semáforo":
             "val_target_formatted", "val_match_100_formatted", "compliance_pct", "status", "peak_match_name"
         ]].copy()
         df_table_ci.columns = [
-            "Dorsal", "Jugador", "Posición", f"Real ({day_cfg['key_label']})",
-            f"Prescrito ({day_cfg['target_pct']}%)", "Partido 100% (Récord)", "% Cumplimiento", "Semáforo", "Partido de Referencia"
+            "Dorsal", "Jugador", "Posición", f"Real ({day_metric_label})",
+            f"Prescrito ({day_pct}%)", "Partido 100% (Récord)", "% Cumplimiento", "Semáforo", "Partido de Referencia"
         ]
 
         def highlight_stimulus(val):
