@@ -49,10 +49,17 @@ def generate_tactical_report(session_summary: Dict[str, Any]) -> str:
     if outfield_df.empty:
         outfield_df = df_metrics
 
-    max_speed_row = outfield_df.loc[outfield_df["max_speed"].idxmax()]
-    max_dist_row = outfield_df.loc[outfield_df["total_distance"].idxmax()]
-    max_hsr_row = outfield_df.loc[outfield_df["hsr_distance"].idxmax()]
-    max_eff_row = outfield_df.loc[outfield_df["acc_dec_eff"].idxmax()]
+    def _get_max_row(df, col):
+        if col in df.columns:
+            valid = df[col].dropna()
+            if not valid.empty:
+                return df.loc[valid.idxmax()]
+        return df.iloc[0] if not df.empty else None
+
+    max_speed_row = _get_max_row(outfield_df, "max_speed")
+    max_dist_row = _get_max_row(outfield_df, "total_distance")
+    max_hsr_row = _get_max_row(outfield_df, "hsr_distance")
+    max_eff_row = _get_max_row(outfield_df, "acc_dec_eff")
 
     # Construcción del informe
     lines = []
@@ -95,9 +102,15 @@ def generate_tactical_report(session_summary: Dict[str, Any]) -> str:
     lines.append("3. ANÁLISIS DE CUMPLIMIENTO TÁCTICO POR LÍNEA")
     for pos in df_metrics["position"].unique():
         sub_pos = df_metrics[df_metrics["position"] == pos]
-        mean_comp = sub_pos["global_compliance"].mean()
-        pos_hsr = sub_pos["hsr_distance"].mean()
-        pos_td = sub_pos["total_distance"].mean()
+        if "global_compliance" in sub_pos.columns:
+            mean_comp = float(sub_pos["global_compliance"].dropna().mean() or 100.0)
+        elif "compliance_pct" in sub_pos.columns:
+            mean_comp = float(sub_pos["compliance_pct"].dropna().mean() or 100.0)
+        else:
+            mean_comp = 100.0
+
+        pos_hsr = float(sub_pos["hsr_distance"].dropna().mean() or 0.0) if "hsr_distance" in sub_pos.columns else 0.0
+        pos_td = float(sub_pos["total_distance"].dropna().mean() or 0.0) if "total_distance" in sub_pos.columns else 0.0
 
         target = targets.get(pos, {})
         tgt_hsr = target.get("target_hsr", 0.0)
@@ -116,17 +129,22 @@ def generate_tactical_report(session_summary: Dict[str, Any]) -> str:
 
     # 4. Jugadores con Máximo Rendimiento
     lines.append("4. PICOS DE RENDIMIENTO Y VELOCIDAD PUNTA")
-    lines.append(f"• Velocidad Máxima: #{max_speed_row['dorsal']} {max_speed_row['player_name']} ({max_speed_row['position']}) con {max_speed_row['max_speed']:.2f} km/h.")
-    lines.append(f"• Mayor Distancia Total: #{max_dist_row['dorsal']} {max_dist_row['player_name']} ({max_dist_row['position']}) con {max_dist_row['total_distance']:.1f} m.")
-    lines.append(f"• Mayor Distancia HSR (>19.8 km/h): #{max_hsr_row['dorsal']} {max_hsr_row['player_name']} ({max_hsr_row['position']}) con {max_hsr_row['hsr_distance']:.1f} m.")
-    lines.append(f"• Mayor Carga Mecánica (AC.E): #{max_eff_row['dorsal']} {max_eff_row['player_name']} ({max_eff_row['position']}) con {max_eff_row['acc_dec_eff']} aceleraciones/desaceleraciones.")
+    if max_speed_row is not None:
+        lines.append(f"• Velocidad Máxima: #{max_speed_row['dorsal']} {max_speed_row['player_name']} ({max_speed_row['position']}) con {max_speed_row['max_speed']:.2f} km/h.")
+    if max_dist_row is not None:
+        lines.append(f"• Mayor Distancia Total: #{max_dist_row['dorsal']} {max_dist_row['player_name']} ({max_dist_row['position']}) con {max_dist_row['total_distance']:.1f} m.")
+    if max_hsr_row is not None:
+        lines.append(f"• Mayor Distancia HSR (>19.8 km/h): #{max_hsr_row['dorsal']} {max_hsr_row['player_name']} ({max_hsr_row['position']}) con {max_hsr_row['hsr_distance']:.1f} m.")
+    if max_eff_row is not None:
+        lines.append(f"• Mayor Carga Mecánica (AC.E): #{max_eff_row['dorsal']} {max_eff_row['player_name']} ({max_eff_row['position']}) con {max_eff_row['acc_dec_eff']} aceleraciones/desaceleraciones.")
 
     gk_df = df_metrics[df_metrics["position"] == "Portero"]
     if not gk_df.empty:
         lines.append("• Monitorización de Portería:")
         for _, gk_row in gk_df.iterrows():
-            lines.append(f"    - #{gk_row['dorsal']} {gk_row['player_name']}: DT {gk_row['total_distance']:.0f}m | V5/HSR {gk_row['hsr_distance']:.1f}m | Carga {gk_row['acc_dec_eff']} acc/dec | Vmáx {gk_row['max_speed']:.2f} km/h.")
+            lines.append(f"    - #{gk_row['dorsal']} {gk_row['player_name']}: DT {gk_row.get('total_distance', 0.0):.0f}m | V5/HSR {gk_row.get('hsr_distance', 0.0):.1f}m | Carga {gk_row.get('acc_dec_eff', 0)} acc/dec | Vmáx {gk_row.get('max_speed', 0.0):.2f} km/h.")
     lines.append("")
+
 
     # 5. Recomendaciones para la Próxima Sesión
     next_day_rec = _get_next_day_recommendations(sess.microcycle_day, danger_players, underload_players)

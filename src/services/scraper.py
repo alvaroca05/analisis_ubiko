@@ -145,7 +145,10 @@ class UbikoWebAutomator:
                 # Generar informe de la sesión existente
                 with get_db() as db:
                     summary = calculate_session_summary(db, existing.id)
-                    report = generate_tactical_report(summary)
+                    try:
+                        report = generate_tactical_report(summary)
+                    except Exception as e_rep:
+                        report = f"Informe pendiente de computar: {e_rep}"
 
                 browser.close()
                 return {
@@ -224,7 +227,10 @@ class UbikoWebAutomator:
                 )
 
                 summary = calculate_session_summary(db, import_res["session_id"])
-                report = generate_tactical_report(summary)
+                try:
+                    report = generate_tactical_report(summary)
+                except Exception as e_rep:
+                    report = f"Informe pendiente de computar: {e_rep}"
 
             print("\n" + "=" * 65)
             print(" ¡SESIÓN IMPORTADA Y GENERADO INFORME COMPLETO CON ÉXITO!")

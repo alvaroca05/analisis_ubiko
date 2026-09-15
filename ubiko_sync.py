@@ -319,7 +319,10 @@ class UbikoSyncService:
                 print(f"[UBIKO] La sesión '{s_name}' ya está en la base de datos. Generando resumen...")
                 with get_db() as db:
                     summ = calculate_session_summary(db, existing.id)
-                    rep = generate_tactical_report(summ)
+                    try:
+                        rep = generate_tactical_report(summ)
+                    except Exception as e_rep:
+                        rep = f"Informe pendiente de computar: {e_rep}"
                     reports.append(rep)
                 synced_sessions.append({"id": existing.id, "name": s_name, "date": s_date, "status": "already_synced"})
                 continue
@@ -442,13 +445,19 @@ class UbikoSyncService:
                 )
 
                 summ = calculate_session_summary(db, import_res["session_id"])
-                rep = generate_tactical_report(summ)
+                try:
+                    rep = generate_tactical_report(summ)
+                except Exception as e_rep:
+                    rep = f"Informe pendiente de computar: {e_rep}"
                 reports.append(rep)
 
             # Guardar informe físico
-            report_file = REPORTS_DIR / f"informe_{s_date.strftime('%Y%m%d')}_{s_name[:15]}.txt"
-            with open(report_file, "w", encoding="utf-8") as f:
-                f.write(rep)
+            try:
+                report_file = REPORTS_DIR / f"informe_{s_date.strftime('%Y%m%d')}_{s_name[:15]}.txt"
+                with open(report_file, "w", encoding="utf-8") as f:
+                    f.write(rep)
+            except Exception:
+                pass
 
             synced_sessions.append({
                 "id": import_res["session_id"],

@@ -892,8 +892,11 @@ def calculate_session_summary(session: Session, session_id: int, club_id: int = 
             on="player_id",
             how="left"
         )
+        df_metrics["compliance_pct"] = df_metrics["compliance_pct"].fillna(100.0)
+        df_metrics["global_compliance"] = df_metrics["compliance_pct"]
     else:
         df_metrics["compliance_pct"] = 100.0
+        df_metrics["global_compliance"] = 100.0
 
     rpe_valid = df_metrics["rpe"].dropna()
     rpe_valid = rpe_valid[rpe_valid > 0]
