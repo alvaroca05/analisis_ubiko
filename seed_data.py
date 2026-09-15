@@ -30,8 +30,8 @@ PLAYERS_DATA = [
     {"name": "Salvi", "dorsal": 5, "position": "Central", "max_speed": 31.2, "vo2max": 56.5},
     # 6 Virtudes (Mediocentro)
     {"name": "Virtudes", "dorsal": 6, "position": "Mediocentro", "max_speed": 31.4, "vo2max": 63.0},
-    # 7 Bugui (Extremo)
-    {"name": "Bugui", "dorsal": 7, "position": "Extremo", "max_speed": 34.2, "vo2max": 61.5},
+    # 7 Bugui (Extremo - Sin minutos disputados esta temporada)
+    {"name": "Bugui", "dorsal": 7, "position": "Extremo", "max_speed": 34.2, "vo2max": 61.5, "active": False},
     # 8 Juan Maria (Mediocentro)
     {"name": "Juan Maria", "dorsal": 8, "position": "Mediocentro", "max_speed": 31.0, "vo2max": 62.0},
     # 9 Bianco (Delantero)
@@ -157,7 +157,7 @@ def seed_roster_and_targets(overwrite: bool = False, club_id: int = DEFAULT_CLUB
                     position=pdata["position"],
                     max_speed_kmh=pdata["max_speed"],
                     vo2max=pdata["vo2max"],
-                    active=True
+                    active=pdata.get("active", True)
                 )
                 db.add(p)
             print(f"[PLANTILLA] {len(PLAYERS_DATA)} jugadores oficiales registrados.")
@@ -172,7 +172,7 @@ def seed_roster_and_targets(overwrite: bool = False, club_id: int = DEFAULT_CLUB
                         position=pdata["position"],
                         max_speed_kmh=pdata["max_speed"],
                         vo2max=pdata["vo2max"],
-                        active=True
+                        active=pdata.get("active", True)
                     )
                     db.add(p)
 
@@ -186,6 +186,7 @@ def purge_simulated_sessions_and_metrics(club_id: int = DEFAULT_CLUB_ID) -> tupl
     """
     Elimina todas las sesiones y métricas de la base de datos activa (Supabase o SQLite),
     garantizando que la plantilla oficial de 26 jugadores y los objetivos permanezcan intactos.
+    Sincroniza automáticamente los archivos CSV reales de Ubiko y recalcula techos.
     Retorna (num_sesiones_borradas, num_metricas_borradas).
     """
     init_db()
@@ -194,7 +195,15 @@ def purge_simulated_sessions_and_metrics(club_id: int = DEFAULT_CLUB_ID) -> tupl
         n_sessions = db.query(TrainingSession).filter(TrainingSession.club_id == club_id).delete()
     
     seed_roster_and_targets(overwrite=False, club_id=club_id)
-    print(f"[LIMPIEZA] Eliminadas {n_sessions} sesiones y {n_metrics} métricas.")
+
+    # Sincronizar sesiones reales desde CSVs de Ubiko y actualizar techos
+    with get_db() as db:
+        from src.services.importer import UbikoImporter
+        from src.services.analytics import sync_and_update_player_match_peaks
+        UbikoImporter.sync_local_csv_samples(db)
+        sync_and_update_player_match_peaks(db, club_id=club_id)
+
+    print(f"[LIMPIEZA] Eliminadas {n_sessions} sesiones y {n_metrics} métricas. Sincronizadas sesiones reales.")
     return n_sessions, n_metrics
 
 
@@ -227,7 +236,8 @@ def seed_database(include_sessions: bool = True):
         current_date = start_date
         session_count = 0
 
-        # Patrón semanal: Miércoles (MD-4), Jueves (MD-3), Viernes (MD-2), Sábado (MD-1), Domingo (MD), Lunes (Descanso), Martes (Descanso/Gimnasio)
+        # Patrón semanal: Miércoles (MD-4), Jueves (MD-3), Viernes (MD-2), Sábado (MD-1), Lunes (Descanso), Martes (Descanso/Gimnasio)
+        # Nota: Los Domingos (MD / Partidos) se importan exclusivamente de los CSV reales de Ubiko para evitar duplicados.
         while current_date <= end_date:
             weekday = current_date.weekday()  # 0=Lunes, 1=Martes, 2=Miércoles, 3=Jueves, 4=Viernes, 5=Sábado, 6=Domingo
 
@@ -248,9 +258,8 @@ def seed_database(include_sessions: bool = True):
                 day_tag = "MD-1"
                 duration = 45
             elif weekday == 6:
-                day_tag = "MD"
-                sess_type = "Partido"
-                duration = 90
+                # Domingo: reservado para partidos reales oficiales de Ubiko
+                day_tag = None
 
             if day_tag:
                 session_count += 1
@@ -266,9 +275,9 @@ def seed_database(include_sessions: bool = True):
                 db.add(sess_obj)
                 db.flush()
 
-                # Generar métricas para cada jugador de campo en esta sesión (los porteros no portan chip GPS)
+                # Generar métricas para cada jugador de campo activo (Bugui #7 no ha disputado minutos y los porteros no portan chip GPS)
                 for p_id, player in players_map.items():
-                    if player.position == "Portero":
+                    if player.position == "Portero" or player.dorsal == 7 or not getattr(player, "active", True):
                         continue
 
                     targets = TARGETS_CONFIG[day_tag][player.position]
@@ -276,12 +285,8 @@ def seed_database(include_sessions: bool = True):
                     # Moduladores específicos para recrear casos de uso reales
                     factor_individual = 1.0
                     
-                    # Caso 1: Bugui (#7 Extremo) - Pico agudo en los últimos 4 días -> ALERTA ROJA (ACWR > 1.55)
-                    if player.dorsal in [7] and current_date >= (end_date - timedelta(days=4)):
-                        factor_individual = 1.65  # Sobrecarga aguda severa
-
-                    # Caso 2: Pajuelo (#25 Lateral) y Manu Viana (#15 Extremo) - Fatiga acumulada reciente -> PRECAUCIÓN (ACWR ~ 1.35 - 1.45)
-                    elif player.dorsal in [25, 15] and current_date >= (end_date - timedelta(days=5)):
+                    # Caso 1: Pajuelo (#25 Lateral) y Manu Viana (#15 Extremo) - Fatiga acumulada reciente -> PRECAUCIÓN (ACWR ~ 1.35 - 1.45)
+                    if player.dorsal in [25, 15] and current_date >= (end_date - timedelta(days=5)):
                         factor_individual = 1.40  # Fatiga moderada
 
                     # Caso 3: Loren (#9 Delantero) y Salva Vegas (#10) - Vuelta de lesión en última semana -> SUBENTRENAMIENTO (ACWR < 0.75)
@@ -343,6 +348,14 @@ def seed_database(include_sessions: bool = True):
         print(f"  - 25 objetivos de carga posicional configurados.")
         print(f"  - {session_count} sesiones simuladas a lo largo de 6 semanas.")
         print(f"  - {session_count * 24} registros GPS de métricas calculados.")
+
+    # 4. Sincronizar automáticamente los partidos y entrenamientos oficiales reales de Ubiko
+    with get_db() as db:
+        from src.services.importer import UbikoImporter
+        from src.services.analytics import sync_and_update_player_match_peaks
+        sync_res = UbikoImporter.sync_local_csv_samples(db)
+        sync_and_update_player_match_peaks(db)
+        print(f"  - {sync_res.get('synced_count', 0)} sesiones oficiales Ubiko importadas desde data/samples.")
 
 
 if __name__ == "__main__":

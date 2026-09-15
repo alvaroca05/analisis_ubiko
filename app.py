@@ -1002,22 +1002,32 @@ elif menu == "🏟️ Referencia Partidos (Excel P.F.)":
             </div>
             """, unsafe_allow_html=True)
 
-        # Filtros y tabla
-        col_fil1, col_fil2 = st.columns([1, 1])
-        with col_fil1:
-            pos_excel_filter = st.multiselect(
-                "Filtrar por Demarcación:",
-                ["CENTRAL", "LATERAL", "MEDIOCENTRO", "EXTREMO", "DELANTERO"],
-                default=["CENTRAL", "LATERAL", "MEDIOCENTRO", "EXTREMO", "DELANTERO"],
-                key="excel_ref_pos_filter"
+        # Selector de Modo de Visualización (Formato Oficial 6 Roles vs Convocatoria Completa)
+        col_vm1, col_vm2 = st.columns([1.3, 1])
+        with col_vm1:
+            view_mode = st.radio(
+                "Estructura de la Tabla:",
+                ["📋 Formato Oficial P.F. (6 Roles Referencia)", "👥 Convocatoria Completa (Todos los Jugadores)"],
+                horizontal=True,
+                help="El Formato Oficial P.F. replica exactamente el Excel del preparador físico con los 6 roles clave y el resumen del equipo."
             )
 
-        # Filtrar preservando filas especiales (JUGADOR TOP y EQUIPO)
-        mask = (
-            df_disp["POSICIÓN"].isin(pos_excel_filter) |
-            (df_disp["_row_type"].isin(["top", "team"]))
-        )
-        df_view = df_disp[mask].copy()
+        if view_mode == "📋 Formato Oficial P.F. (6 Roles Referencia)":
+            df_view = ref_data.get("df_display", df_disp).copy()
+        else:
+            df_full = ref_data.get("df_full", df_disp).copy()
+            with col_vm2:
+                pos_excel_filter = st.multiselect(
+                    "Filtrar por Demarcación:",
+                    ["CENTRAL", "LATERAL", "MEDIOCENTRO", "EXTREMO", "DELANTERO"],
+                    default=["CENTRAL", "LATERAL", "MEDIOCENTRO", "EXTREMO", "DELANTERO"],
+                    key="excel_ref_pos_filter"
+                )
+            mask = (
+                df_full["POSICIÓN"].isin(pos_excel_filter) |
+                (df_full["_row_type"].isin(["top", "team"]))
+            )
+            df_view = df_full[mask].copy()
 
         cols_clean = [c for c in df_view.columns if not c.startswith("_")]
 

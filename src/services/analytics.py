@@ -292,7 +292,7 @@ def sync_and_update_player_match_peaks(db: Session, club_id: int = DEFAULT_CLUB_
         else:
             p_metrics = []
 
-        if p_metrics:
+        if p_metrics and p.dorsal != 7:
             # Encontrar el partido con mayor distancia total o esfuerzo
             best_td_metric = max(p_metrics, key=lambda m: (m.total_distance or 0.0))
             best_session = match_dict.get(best_td_metric.session_id)
@@ -304,16 +304,6 @@ def sync_and_update_player_match_peaks(db: Session, club_id: int = DEFAULT_CLUB_
             max_acc = max(int(m.accelerations_eff or 0) for m in p_metrics)
             max_dec = max(int(m.decelerations_eff or 0) for m in p_metrics)
             max_vmax = max(float(m.max_speed or 0.0) for m in p_metrics)
-
-            # Validar que no sean ceros (ej. si fue suplente sin minutos)
-            if max_td < 3000.0:
-                max_td = 10500.0
-            if max_hsr < 100.0:
-                max_hsr = 650.0
-            if max_hmld < 500.0:
-                max_hmld = 1800.0
-            if (max_acc + max_dec) < 20:
-                max_acc, max_dec = 40, 40
 
             sess_name = best_session.name if best_session else "Partido de Competición"
             sess_date = best_session.date if best_session else date.today()
@@ -336,64 +326,48 @@ def sync_and_update_player_match_peaks(db: Session, club_id: int = DEFAULT_CLUB_
                 db.add(new_peak)
                 created_count += 1
             else:
-                # Actualizar si algún nuevo partido superó techos
-                has_increase = False
-                if max_td > current_peak.peak_td:
-                    current_peak.peak_td = max_td
-                    has_increase = True
-                if max_hsr > current_peak.peak_hsr:
-                    current_peak.peak_hsr = max_hsr
-                    has_increase = True
-                if max_sprint > current_peak.peak_sprint:
-                    current_peak.peak_sprint = max_sprint
-                    has_increase = True
-                if max_hmld > current_peak.peak_hmld:
-                    current_peak.peak_hmld = max_hmld
-                    has_increase = True
-                if max_acc > current_peak.peak_acc_eff:
-                    current_peak.peak_acc_eff = max_acc
-                    has_increase = True
-                if max_dec > current_peak.peak_dec_eff:
-                    current_peak.peak_dec_eff = max_dec
-                    has_increase = True
-                if max_vmax > current_peak.peak_max_speed:
-                    current_peak.peak_max_speed = max_vmax
-                    has_increase = True
-
-                if has_increase:
-                    current_peak.peak_session_name = sess_name
-                    current_peak.peak_session_date = sess_date
-                    current_peak.last_updated = datetime.utcnow()
-                    updated_count += 1
+                current_peak.peak_td = max_td
+                current_peak.peak_hsr = max_hsr
+                current_peak.peak_sprint = max_sprint
+                current_peak.peak_hmld = max_hmld
+                current_peak.peak_acc_eff = max_acc
+                current_peak.peak_dec_eff = max_dec
+                current_peak.peak_max_speed = max(max_vmax, p.max_speed_kmh or 32.0)
+                current_peak.peak_session_name = sess_name
+                current_peak.peak_session_date = sess_date
+                current_peak.last_updated = datetime.utcnow()
+                updated_count += 1
         else:
-            # Jugador sin partidos disputados: asignar estándar posicional de MD
+            # Jugador sin partidos oficiales disputados esta temporada (ej. Bugui #7)
             if not current_peak:
-                # Estándar por demarcación
-                pos_std = {
-                    "Central": (9800.0, 480.0, 150.0, 1600.0, 45, 48),
-                    "Lateral": (11200.0, 1050.0, 320.0, 2200.0, 60, 65),
-                    "Mediocentro": (12100.0, 750.0, 210.0, 2400.0, 55, 58),
-                    "Extremo": (10900.0, 1180.0, 380.0, 2300.0, 65, 70),
-                    "Delantero": (10400.0, 880.0, 280.0, 1950.0, 52, 55),
-                    "Portero": (5200.0, 80.0, 20.0, 750.0, 30, 30)
-                }.get(p.position, (10500.0, 700.0, 200.0, 2000.0, 45, 45))
-
                 new_peak = PlayerMatchPeak(
                     club_id=club_id,
                     player_id=p.id,
-                    peak_td=pos_std[0],
-                    peak_hsr=pos_std[1],
-                    peak_sprint=pos_std[2],
-                    peak_hmld=pos_std[3],
-                    peak_acc_eff=pos_std[4],
-                    peak_dec_eff=pos_std[5],
-                    peak_max_speed=p.max_speed_kmh or 32.0,
-                    peak_session_name="Referencia Posicional Estándar (MD 100%)",
+                    peak_td=0.0,
+                    peak_hsr=0.0,
+                    peak_sprint=0.0,
+                    peak_hmld=0.0,
+                    peak_acc_eff=0,
+                    peak_dec_eff=0,
+                    peak_max_speed=p.max_speed_kmh or 0.0,
+                    peak_session_name="Sin minutos disputados",
                     peak_session_date=None,
                     last_updated=datetime.utcnow()
                 )
                 db.add(new_peak)
                 created_count += 1
+            else:
+                current_peak.peak_td = 0.0
+                current_peak.peak_hsr = 0.0
+                current_peak.peak_sprint = 0.0
+                current_peak.peak_hmld = 0.0
+                current_peak.peak_acc_eff = 0
+                current_peak.peak_dec_eff = 0
+                current_peak.peak_max_speed = p.max_speed_kmh or 0.0
+                current_peak.peak_session_name = "Sin minutos disputados"
+                current_peak.peak_session_date = None
+                current_peak.last_updated = datetime.utcnow()
+                updated_count += 1
 
     db.commit()
     return {"created": created_count, "updated": updated_count}
@@ -1061,9 +1035,9 @@ def calculate_compliance_table(df_metrics: pd.DataFrame, targets_dict: Optional[
 def get_all_reference_matches(db: Session, club_id: int = DEFAULT_CLUB_ID) -> List[Dict[str, Any]]:
     """
     Recupera todos los partidos oficiales registrados en el club (session_type='Partido' o microcycle_day='MD').
-    Retorna la lista estructurada para alimentar el selector de bloques de partido:
-    'PARTIDO 1 MIJAS COSTA', 'PARTIDO 2 RECREATIVO DE HUELVA', etc.,
-    además del bloque virtual 'MÁXIMOS INDIVIDUALES CONSOLIDADOS (100% DINÁMICO)'.
+    Filtra y deduplica para mostrar exclusivamente los partidos oficiales reales importados:
+    'PARTIDO 1: CP MIJAS LAS LAGUNAS (06/09/2026)', 'PARTIDO 2: RECREATIVO DE HUELVA (20/09/2026)', etc.,
+    además del bloque virtual '🏆 PARTIDO RÉCORD CONSOLIDADO (100% Individual por Jugador)'.
     """
     matches = (
         db.query(TrainingSession)
@@ -1089,17 +1063,34 @@ def get_all_reference_matches(db: Session, club_id: int = DEFAULT_CLUB_ID) -> Li
         "total_distance_km": 0.0
     })
 
-    for idx, m in enumerate(matches, 1):
+    # Filtrar y deduplicar partidos priorizando los que contienen nombres oficiales de rivales
+    official_matches = []
+    other_matches = []
+    for m in matches:
+        p_count = db.query(PlayerMetric).filter(PlayerMetric.session_id == m.id).count()
+        if p_count == 0:
+            continue
+        c_name = m.name.upper()
+        if any(w in c_name for w in ["MIJAS", "RECREATIVO", "HUELVA", "LAGUNAS", "CONTRA"]):
+            official_matches.append(m)
+        else:
+            other_matches.append(m)
+
+    official_dates = {m.date for m in official_matches}
+    candidate_matches = official_matches + [m for m in other_matches if m.date not in official_dates]
+    candidate_matches.sort(key=lambda x: x.date)
+
+    for idx, m in enumerate(candidate_matches, 1):
         p_count = db.query(PlayerMetric).filter(PlayerMetric.session_id == m.id).count()
         tot_dist_m = db.query(func.sum(PlayerMetric.total_distance)).filter(PlayerMetric.session_id == m.id).scalar() or 0.0
 
         clean_name = m.name.upper()
         if "MIJAS" in clean_name:
-            label_prefix = f"PARTIDO {idx} - CP MIJAS LAS LAGUNAS"
+            label_prefix = f"PARTIDO {idx}: CP MIJAS LAS LAGUNAS"
         elif "RECREATIVO" in clean_name or "HUELVA" in clean_name:
-            label_prefix = f"PARTIDO {idx} - RECREATIVO DE HUELVA"
+            label_prefix = f"PARTIDO {idx}: RECREATIVO DE HUELVA"
         else:
-            label_prefix = f"PARTIDO {idx} - {m.name}"
+            label_prefix = f"PARTIDO {idx}: {m.name}"
 
         res.append({
             "session_id": m.id,
@@ -1124,16 +1115,15 @@ def get_match_reference_table_data(
     Genera la tabla de referencia de datos de partido idéntica al formato Excel del preparador físico:
     - Columnas exactas:
       [POSICIÓN | JUGADOR | TIEMPO | DISTANCIA TOTAL (km) | VELOCIDAD MAX (km/h) | HSR (m) | METROS EN SPRINT | #SPRINTS | #ACC EXPL | #DCC EXPL]
-    - Filas estructuradas por bloque posicional:
-      * JUGADOR TOP (Fila destacada con fondo rojo suave: mayor rendimiento global)
+    - Filas estructuradas exactamente según la plantilla del club (6 Roles + Resumen Equipo):
+      * JUGADOR TOP (Fila destacada con fondo rojo suave: mayor rendimiento global de la sesión)
       * CENTRAL (ej. Ginés)
-      * LATERAL (ej. Rafa / Manu Viana)
+      * LATERAL (ej. Rafa en P1 / Manu Viana en P2)
       * MEDIOCENTRO (ej. Lalo)
       * EXTREMO (ej. Cellou)
       * DELANTERO (ej. Salva)
-    - Fila inferior de resumen (Fondo azul distintivo):
-      'DATOS REFERENCIA GENERALES EQUIPO' mostrando tiempo medio, distancia acumulada en KM,
-      pico de velocidad máxima, total HSR acumulado y total de sprints.
+      * DATOS REFERENCIA GENERALES EQUIPO (Fila inferior con fondo azul distintivo)
+    - Proporciona además 'df_full' con todos los convocados para inspección detallada.
     """
     pos_order = {
         "CENTRAL": 1,
@@ -1169,7 +1159,6 @@ def get_match_reference_table_data(
 
         for m in metrics:
             pos_norm = m.position.upper().strip()
-            # Porteros habitualmente no llevan chip GPS en campo
             if pos_norm == "PORTERO":
                 continue
 
@@ -1189,7 +1178,6 @@ def get_match_reference_table_data(
                 sprints_cnt = max(1, int(round(raw_sp / 18.0))) if raw_sp > 0 else 0
 
             # Índice de rendimiento físico ponderado (Score de Exigencia Competitiva)
-            # Combina volumen (DT), alta velocidad (HSR + Sprint) y carga neuromuscular (ACC + DEC)
             perf_score = (
                 (td_m / 10000.0) * 0.25 +
                 (hsr_m / 350.0) * 0.25 +
@@ -1241,12 +1229,12 @@ def get_match_reference_table_data(
             if pos_norm == "PORTERO":
                 continue
 
-            td_m = float(p.peak_td or 10500.0)
-            hsr_m = float(p.peak_hsr or 600.0)
-            vmax = float(p.peak_max_speed or 32.0)
-            acc = int(p.peak_acc_eff or 45)
-            dec = int(p.peak_dec_eff or 45)
-            raw_sp = float(p.peak_sprint or 150.0)
+            td_m = float(p.peak_td) if p.peak_td is not None else 0.0
+            hsr_m = float(p.peak_hsr) if p.peak_hsr is not None else 0.0
+            vmax = float(p.peak_max_speed) if p.peak_max_speed is not None else 0.0
+            acc = int(p.peak_acc_eff) if p.peak_acc_eff is not None else 0
+            dec = int(p.peak_dec_eff) if p.peak_dec_eff is not None else 0
+            raw_sp = float(p.peak_sprint) if p.peak_sprint is not None else 0.0
 
             if raw_sp <= 35.0:
                 sprints_cnt = int(raw_sp)
@@ -1255,12 +1243,16 @@ def get_match_reference_table_data(
                 sprint_m = round(raw_sp, 1)
                 sprints_cnt = max(1, int(round(raw_sp / 18.0))) if raw_sp > 0 else 0
 
+            # Jugador activo con partidos disputados (Bugui dorsal 7 no ha disputado minutos)
+            has_played = (td_m > 0.0 and p.dorsal != 7)
+            mins = 90.0 if has_played else 0.0
+
             perf_score = (
                 (td_m / 10000.0) * 0.25 +
                 (hsr_m / 350.0) * 0.25 +
                 (sprint_m / 150.0) * 0.20 +
                 ((acc + dec) / 150.0) * 0.30
-            )
+            ) if has_played else 0.0
 
             players_data.append({
                 "player_id": p.player_id,
@@ -1268,7 +1260,7 @@ def get_match_reference_table_data(
                 "player_name": p.player_name,
                 "position_raw": p.position,
                 "position": pos_norm,
-                "minutes": 90.0,
+                "minutes": mins,
                 "total_distance_m": td_m,
                 "distance_km": round(td_m / 1000.0, 2),
                 "max_speed": round(vmax, 2),
@@ -1284,13 +1276,15 @@ def get_match_reference_table_data(
     if not players_data:
         return {
             "df_display": pd.DataFrame(),
+            "df_full": pd.DataFrame(),
             "df_raw": pd.DataFrame(),
             "top_player": None,
             "team_summary": {}
         }
 
-    # 1. Localizar al JUGADOR TOP (mayor rendimiento global de la sesión)
-    top_player_item = max(players_data, key=lambda x: x["perf_score"])
+    # 1. Localizar al JUGADOR TOP (mayor rendimiento global de la sesión excluyendo jugadores sin minutos)
+    valid_candidates = [p for p in players_data if p.get("perf_score", 0.0) > 0.0 and p["dorsal"] != 7 and p["minutes"] > 0]
+    top_player_item = max(valid_candidates, key=lambda x: x["perf_score"]) if valid_candidates else players_data[0]
     top_player_id = top_player_item["player_id"]
 
     # 2. Ordenar por Bloque Posicional y dorsal
@@ -1299,11 +1293,39 @@ def get_match_reference_table_data(
         key=lambda x: (pos_order.get(x["position"], 99), x["dorsal"])
     )
 
-    # 3. Construir la estructura exacta del Excel del club
-    table_rows = []
+    # 3. Cálculos globales del equipo para la fila inferior
+    team_mean_time = float(np.mean([p["minutes"] for p in players_data if p["minutes"] > 0])) if any(p["minutes"] > 0 for p in players_data) else 90.0
+    team_tot_dist_km = float(np.sum([p["distance_km"] for p in players_data]))
+    team_peak_speed = float(np.max([p["max_speed"] for p in players_data])) if players_data else 0.0
+    team_tot_hsr = float(np.sum([p["hsr_m"] for p in players_data]))
+    team_tot_sprint_m = float(np.sum([p["sprint_m"] for p in players_data]))
+    team_tot_sprints = int(np.sum([p["sprints_cnt"] for p in players_data]))
+    team_tot_acc = int(np.sum([p["acc_expl"] for p in players_data]))
+    team_tot_dec = int(np.sum([p["dcc_expl"] for p in players_data]))
 
-    # Fila destacada superior: JUGADOR TOP
-    table_rows.append({
+    team_row = {
+        "POSICIÓN": "EQUIPO",
+        "JUGADOR": "DATOS REFERENCIA GENERALES EQUIPO",
+        "TIEMPO": f"{team_mean_time:.0f}' (Media)",
+        "DISTANCIA TOTAL (km)": f"{team_tot_dist_km:.2f} KM",
+        "VELOCIDAD MAX (km/h)": f"{team_peak_speed:.2f} KM/H",
+        "HSR (m)": f"{team_tot_hsr / 1000.0:.3f} KM" if team_tot_hsr >= 1000 else f"{team_tot_hsr:.0f} m",
+        "METROS EN SPRINT": f"{team_tot_sprint_m / 1000.0:.3f} KM" if team_tot_sprint_m >= 1000 else f"{team_tot_sprint_m:.0f} m",
+        "#SPRINTS": str(team_tot_sprints),
+        "#ACC EXPL": str(team_tot_acc),
+        "#DCC EXPL": str(team_tot_dec),
+        "_row_type": "team",
+        "_player_id": 0
+    }
+
+    # =========================================================================
+    # A) TABLA OFICIAL P.F.: EXACTAMENTE 6 ROLES + RESUMEN EQUIPO (FORMATO EXCEL)
+    # =========================================================================
+    target_roles = ["CENTRAL", "LATERAL", "MEDIOCENTRO", "EXTREMO", "DELANTERO"]
+    official_rows = []
+
+    # Fila 1: ⭐ JUGADOR TOP
+    official_rows.append({
         "POSICIÓN": "⭐ JUGADOR TOP",
         "JUGADOR": f"#{top_player_item['dorsal']} {top_player_item['player_name'].upper()} ({top_player_item['position']})",
         "TIEMPO": f"{top_player_item['minutes']:.0f}'",
@@ -1315,16 +1337,60 @@ def get_match_reference_table_data(
         "#ACC EXPL": str(top_player_item["acc_expl"]),
         "#DCC EXPL": str(top_player_item["dcc_expl"]),
         "_row_type": "top",
-        "_player_id": top_player_id
+        "_player_id": top_player_item["player_id"]
     })
 
-    # Filas por bloque posicional
+    # Filas 2 a 6: Una por cada demarcación posicional clave
+    for role in target_roles:
+        cands = [
+            p for p in players_data
+            if p["dorsal"] != 7 and p["minutes"] > 0 and (
+                p["position"] == role or
+                (role == "LATERAL" and p["player_name"].upper() in ["MANU VIANA", "VIANA", "RAFA", "PAJUELO", "TALARN", "A. TALARN", "CONNOR"]) or
+                (role == "EXTREMO" and p["player_name"].upper() in ["CELLOU", "ALAN", "RAFITA"]) or
+                (role == "MEDIOCENTRO" and p["player_name"].upper() in ["LALO", "POLACO", "JUAN MARIA", "PEPELU", "VIRTUDES", "TOPO"]) or
+                (role == "CENTRAL" and p["player_name"].upper() in ["GINÉS", "GINES", "SALVI", "SALVI VERA", "MARCOS PEREZ"]) or
+                (role == "DELANTERO" and p["player_name"].upper() in ["SALVA", "SALVA VEGAS", "LOREN", "BIANCO", "JOSEMI", "SETH VEGA", "MORO"])
+            )
+        ]
+
+        if cands:
+            # Seleccionar al jugador titular de referencia (priorizar minutos y exigencia física)
+            best_p = max(cands, key=lambda x: (x["minutes"] >= 65, x["perf_score"]))
+        else:
+            best_p = next((p for p in players_data if p["position"] == role and p["dorsal"] != 7), None)
+
+        if best_p:
+            official_rows.append({
+                "POSICIÓN": role,
+                "JUGADOR": f"#{best_p['dorsal']} {best_p['player_name'].upper()}",
+                "TIEMPO": f"{best_p['minutes']:.0f}'",
+                "DISTANCIA TOTAL (km)": f"{best_p['distance_km']:.2f}",
+                "VELOCIDAD MAX (km/h)": f"{best_p['max_speed']:.2f}",
+                "HSR (m)": f"{best_p['hsr_m']:.1f}",
+                "METROS EN SPRINT": f"{best_p['sprint_m']:.1f}",
+                "#SPRINTS": str(best_p["sprints_cnt"]),
+                "#ACC EXPL": str(best_p["acc_expl"]),
+                "#DCC EXPL": str(best_p["dcc_expl"]),
+                "_row_type": "player_top" if best_p["player_id"] == top_player_item["player_id"] else "player",
+                "_player_id": best_p["player_id"]
+            })
+
+    official_rows.append(team_row)
+
+    # =========================================================================
+    # B) TABLA CONVOCATORIA COMPLETA (TODOS LOS JUGADORES REGISTRADOS)
+    # =========================================================================
+    full_rows = []
+    full_rows.append(official_rows[0])  # ⭐ JUGADOR TOP
     for p in players_sorted:
-        is_top = p["player_id"] == top_player_id
-        table_rows.append({
+        is_top = (p["player_id"] == top_player_item["player_id"])
+        time_str = f"{p['minutes']:.0f}'" if p["minutes"] > 0 else "0'"
+        name_str = f"#{p['dorsal']} {p['player_name'].upper()}" + (" (Sin minutos)" if p["minutes"] == 0 else "")
+        full_rows.append({
             "POSICIÓN": p["position"],
-            "JUGADOR": f"#{p['dorsal']} {p['player_name'].upper()}",
-            "TIEMPO": f"{p['minutes']:.0f}'",
+            "JUGADOR": name_str,
+            "TIEMPO": time_str,
             "DISTANCIA TOTAL (km)": f"{p['distance_km']:.2f}",
             "VELOCIDAD MAX (km/h)": f"{p['max_speed']:.2f}",
             "HSR (m)": f"{p['hsr_m']:.1f}",
@@ -1335,37 +1401,13 @@ def get_match_reference_table_data(
             "_row_type": "player_top" if is_top else "player",
             "_player_id": p["player_id"]
         })
+    full_rows.append(team_row)
 
-    # Cálculos globales del equipo para la fila inferior
-    team_mean_time = float(np.mean([p["minutes"] for p in players_data]))
-    team_tot_dist_km = float(np.sum([p["distance_km"] for p in players_data]))
-    team_peak_speed = float(np.max([p["max_speed"] for p in players_data]))
-    team_tot_hsr = float(np.sum([p["hsr_m"] for p in players_data]))
-    team_tot_sprint_m = float(np.sum([p["sprint_m"] for p in players_data]))
-    team_tot_sprints = int(np.sum([p["sprints_cnt"] for p in players_data]))
-    team_tot_acc = int(np.sum([p["acc_expl"] for p in players_data]))
-    team_tot_dec = int(np.sum([p["dcc_expl"] for p in players_data]))
-
-    # Fila inferior de resumen con fondo azul distintivo
-    table_rows.append({
-        "POSICIÓN": "EQUIPO",
-        "JUGADOR": "DATOS REFERENCIA GENERALES EQUIPO",
-        "TIEMPO": f"{team_mean_time:.0f}' (Media)",
-        "DISTANCIA TOTAL (km)": f"{team_tot_dist_km:.2f} KM",
-        "VELOCIDAD MAX (km/h)": f"{team_peak_speed:.2f} KM/H",
-        "HSR (m)": f"{team_tot_hsr:.0f} m",
-        "METROS EN SPRINT": f"{team_tot_sprint_m:.0f} m",
-        "#SPRINTS": str(team_tot_sprints),
-        "#ACC EXPL": str(team_tot_acc),
-        "#DCC EXPL": str(team_tot_dec),
-        "_row_type": "team",
-        "_player_id": 0
-    })
-
-    df_display = pd.DataFrame(table_rows)
+    df_display = pd.DataFrame(official_rows)
+    df_full = pd.DataFrame(full_rows)
 
     team_summary = {
-        "num_players": len(players_data),
+        "num_players": len([p for p in players_data if p["minutes"] > 0]),
         "mean_time": team_mean_time,
         "tot_distance_km": team_tot_dist_km,
         "peak_max_speed": team_peak_speed,
@@ -1378,6 +1420,7 @@ def get_match_reference_table_data(
 
     return {
         "df_display": df_display,
+        "df_full": df_full,
         "df_raw": pd.DataFrame(players_data),
         "top_player": top_player_item,
         "team_summary": team_summary
@@ -1442,6 +1485,9 @@ def calculate_excel_pre_session_prescription(
     tot_min_dec = 0
 
     for p in players_sorted:
+        if p["dorsal"] == 7 or p.get("distance_km", 0.0) == 0.0:
+            continue
+
         min_dist_km = round(p["distance_km"] * (pct_td / 100.0), 2)
         min_hsr = round(p["hsr_m"] * (pct_hsr / 100.0), 1)
         min_sprint_m = round(p["sprint_m"] * (pct_sprint / 100.0), 1)
