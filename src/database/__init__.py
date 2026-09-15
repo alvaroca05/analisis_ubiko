@@ -2,7 +2,7 @@
 Capa de persistencia y modelos ORM con SQLAlchemy.
 """
 from .connection import engine, SessionLocal, get_db, init_db
-from .models import Base, Player, TrainingSession, PlayerMetric, TargetLoad
+from .models import Base, Player, TrainingSession, PlayerMetric, TargetLoad, PlayerMatchPeak
 
 __all__ = [
     "engine",
@@ -13,5 +13,6 @@ __all__ = [
     "Player",
     "TrainingSession",
     "PlayerMetric",
-    "TargetLoad"
+    "TargetLoad",
+    "PlayerMatchPeak"
 ]

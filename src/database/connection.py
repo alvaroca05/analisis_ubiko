@@ -53,7 +53,7 @@ def init_db():
     Incluye comprobación defensiva de conectividad para diagnosticar problemas de red o credenciales.
     """
     from sqlalchemy import text
-    from src.database.models import Base  # Import local para registrar modelos
+    import src.database.models  # Asegura registro de todos los modelos ORM en Base.metadata
 
     is_sqlite = "sqlite" in DATABASE_URL.lower()
     backend_name = "SQLite local" if is_sqlite else "PostgreSQL / Supabase"

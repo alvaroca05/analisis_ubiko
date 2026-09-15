@@ -21,6 +21,7 @@ class Player(Base):
     __tablename__ = "players"
     __table_args__ = (
         UniqueConstraint("club_id", "dorsal", name="uq_club_player_dorsal"),
+        {"extend_existing": True}
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -48,6 +49,7 @@ class TrainingSession(Base):
     __tablename__ = "training_sessions"
     __table_args__ = (
         UniqueConstraint("club_id", "date", "name", name="uq_session_club_date_name"),
+        {"extend_existing": True}
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -74,6 +76,7 @@ class PlayerMetric(Base):
     __tablename__ = "player_metrics"
     __table_args__ = (
         UniqueConstraint("player_id", "session_id", name="uq_player_session"),
+        {"extend_existing": True}
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -114,6 +117,7 @@ class PlayerMatchPeak(Base):
     __tablename__ = "player_match_peaks"
     __table_args__ = (
         UniqueConstraint("club_id", "player_id", name="uq_club_player_match_peak"),
+        {"extend_existing": True}
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -157,6 +161,7 @@ class TargetLoad(Base):
     __tablename__ = "target_loads"
     __table_args__ = (
         UniqueConstraint("club_id", "microcycle_day", "position", name="uq_target_club_day_position"),
+        {"extend_existing": True}
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
