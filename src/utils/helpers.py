@@ -262,3 +262,135 @@ def create_zscore_chart(df_metrics: pd.DataFrame, metric_col: str = "hsr_distanc
     )
 
     return fig
+
+
+def create_training_vs_match_chart(df_history: pd.DataFrame, peak_match_peak: Any, player_name: str) -> go.Figure:
+    """
+    Gráfico comparativo directo: Carga de Entrenamiento vs. Partido de Máxima Exigencia (100% individual).
+    """
+    if df_history.empty:
+        return go.Figure()
+
+    fig = go.Figure()
+
+    # Separar entrenamientos y partidos
+    df_train = df_history[df_history["session_type"] != "Partido"]
+    df_match = df_history[df_history["session_type"] == "Partido"]
+
+    # Barras de entrenamientos
+    if not df_train.empty:
+        fig.add_trace(
+            go.Bar(
+                x=pd.to_datetime(df_train["date"]),
+                y=df_train["total_distance"],
+                name="Entrenamiento (DT)",
+                marker_color="#3B82F6",
+                opacity=0.85
+            )
+        )
+
+    # Barras de partidos
+    if not df_match.empty:
+        fig.add_trace(
+            go.Bar(
+                x=pd.to_datetime(df_match["date"]),
+                y=df_match["total_distance"],
+                name="Partido Oficial (DT)",
+                marker_color="#10B981",
+                opacity=0.95
+            )
+        )
+
+    # Línea horizontal de Techo 100% del Partido de Máxima Exigencia
+    if peak_match_peak and getattr(peak_match_peak, "peak_td", None):
+        peak_val = float(peak_match_peak.peak_td)
+        match_label = getattr(peak_match_peak, "peak_session_name", "Partido Máx. Exigencia")
+        fig.add_hline(
+            y=peak_val,
+            line_dash="dash",
+            line_color="#F59E0B",
+            line_width=2.5,
+            annotation_text=f"100% Partido Ref.: {peak_val:.0f}m ({match_label})",
+            annotation_position="top left",
+            annotation_font=dict(color="#FCD34D", size=11)
+        )
+
+    fig.update_layout(
+        title=f"Comparativa Directa Entrenamiento vs. Partido - {player_name}",
+        template="plotly_dark",
+        autosize=True,
+        barmode="group",
+        height=380,
+        yaxis_title="Distancia Total (m)",
+        xaxis_title="Fecha",
+        margin=dict(l=20, r=20, t=50, b=30),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=10))
+    )
+
+    return fig
+
+
+def create_weekly_comparison_chart(df_history: pd.DataFrame, player_name: str) -> go.Figure:
+    """
+    Gráfico de evolución semanal: compara la carga acumulada (DT y HSR) por semana del año
+    (Semana actual vs semanas anteriores).
+    """
+    if df_history.empty:
+        return go.Figure()
+
+    df = df_history.copy()
+    df["date"] = pd.to_datetime(df["date"])
+    df["semana"] = df["date"].dt.isocalendar().week
+    df["año"] = df["date"].dt.isocalendar().year
+    df["semana_label"] = "Semana " + df["semana"].astype(str)
+
+    weekly = df.groupby(["año", "semana", "semana_label"]).agg({
+        "total_distance": "sum",
+        "hsr_distance": "sum",
+        "acc_dec_eff": "sum"
+    }).reset_index()
+
+    fig = go.Figure()
+
+    # Barras de DT semanal
+    fig.add_trace(
+        go.Bar(
+            x=weekly["semana_label"],
+            y=weekly["total_distance"],
+            name="Distancia Total (m)",
+            marker_color="#6366F1",
+            yaxis="y1"
+        )
+    )
+
+    # Línea de HSR semanal
+    fig.add_trace(
+        go.Scatter(
+            x=weekly["semana_label"],
+            y=weekly["hsr_distance"],
+            name="HSR (>21 km/h) (m)",
+            mode="lines+markers",
+            line=dict(color="#EC4899", width=3),
+            marker=dict(size=8),
+            yaxis="y2"
+        )
+    )
+
+    fig.update_layout(
+        title=f"Evolución Entre Semanas (Semana Actual vs Anteriores) - {player_name}",
+        template="plotly_dark",
+        autosize=True,
+        height=380,
+        yaxis=dict(title="Distancia Total Semanal (m)"),
+        yaxis2=dict(
+            title="HSR Semanal (m)",
+            overlaying="y",
+            side="right",
+            showgrid=False
+        ),
+        margin=dict(l=20, r=40, t=50, b=30),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=10))
+    )
+
+    return fig
+

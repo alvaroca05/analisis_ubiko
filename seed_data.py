@@ -11,9 +11,9 @@ import random
 from datetime import date, timedelta
 import numpy as np
 
-from src.config import POSITIONS, MICROCYCLE_DAYS
+from src.config import POSITIONS, MICROCYCLE_DAYS, DEFAULT_CLUB_ID
 from src.database.connection import init_db, get_db
-from src.database.models import Player, TrainingSession, PlayerMetric, TargetLoad
+from src.database.models import Player, TrainingSession, PlayerMetric, TargetLoad, PlayerMatchPeak
 
 # Fijar semilla para reproducibilidad científica
 random.seed(42)
@@ -119,20 +119,21 @@ TARGETS_CONFIG = {
 }
 
 
-def seed_roster_and_targets(overwrite: bool = False):
+def seed_roster_and_targets(overwrite: bool = False, club_id: int = DEFAULT_CLUB_ID):
     """
     Inicializa los objetivos de carga física y la plantilla oficial de 26 jugadores
-    SIN generar sesiones ni métricas falsas.
+    SIN generar sesiones ni métricas falsas. Soporta multitenant mediante club_id.
     """
     init_db()
     with get_db() as db:
         # 1. Objetivos
-        if overwrite or db.query(TargetLoad).count() == 0:
+        if overwrite or db.query(TargetLoad).filter(TargetLoad.club_id == club_id).count() == 0:
             if overwrite:
-                db.query(TargetLoad).delete()
+                db.query(TargetLoad).filter(TargetLoad.club_id == club_id).delete()
             for day, pos_dict in TARGETS_CONFIG.items():
                 for pos, vals in pos_dict.items():
                     t = TargetLoad(
+                        club_id=club_id,
                         microcycle_day=day,
                         position=pos,
                         target_td=float(vals["td"]),
@@ -145,11 +146,12 @@ def seed_roster_and_targets(overwrite: bool = False):
             print("[PLANTILLA] Objetivos de carga configurados.")
 
         # 2. Jugadores oficiales
-        if overwrite or db.query(Player).count() == 0:
+        if overwrite or db.query(Player).filter(Player.club_id == club_id).count() == 0:
             if overwrite:
-                db.query(Player).delete()
+                db.query(Player).filter(Player.club_id == club_id).delete()
             for pdata in PLAYERS_DATA:
                 p = Player(
+                    club_id=club_id,
                     name=pdata["name"],
                     dorsal=pdata["dorsal"],
                     position=pdata["position"],
@@ -160,10 +162,11 @@ def seed_roster_and_targets(overwrite: bool = False):
                 db.add(p)
             print(f"[PLANTILLA] {len(PLAYERS_DATA)} jugadores oficiales registrados.")
         else:
-            existing_dorsals = {p.dorsal for p in db.query(Player.dorsal).all()}
+            existing_dorsals = {p.dorsal for p in db.query(Player.dorsal).filter(Player.club_id == club_id).all()}
             for pdata in PLAYERS_DATA:
                 if pdata["dorsal"] not in existing_dorsals:
                     p = Player(
+                        club_id=club_id,
                         name=pdata["name"],
                         dorsal=pdata["dorsal"],
                         position=pdata["position"],
@@ -173,8 +176,13 @@ def seed_roster_and_targets(overwrite: bool = False):
                     )
                     db.add(p)
 
+    # 3. Inicializar techos dinámicos del 100% de partido
+    with get_db() as db:
+        from src.services.analytics import sync_and_update_player_match_peaks
+        sync_and_update_player_match_peaks(db, club_id=club_id)
 
-def purge_simulated_sessions_and_metrics() -> tuple:
+
+def purge_simulated_sessions_and_metrics(club_id: int = DEFAULT_CLUB_ID) -> tuple:
     """
     Elimina todas las sesiones y métricas de la base de datos activa (Supabase o SQLite),
     garantizando que la plantilla oficial de 26 jugadores y los objetivos permanezcan intactos.
@@ -182,10 +190,10 @@ def purge_simulated_sessions_and_metrics() -> tuple:
     """
     init_db()
     with get_db() as db:
-        n_metrics = db.query(PlayerMetric).delete()
-        n_sessions = db.query(TrainingSession).delete()
+        n_metrics = db.query(PlayerMetric).filter(PlayerMetric.club_id == club_id).delete()
+        n_sessions = db.query(TrainingSession).filter(TrainingSession.club_id == club_id).delete()
     
-    seed_roster_and_targets()
+    seed_roster_and_targets(overwrite=False, club_id=club_id)
     print(f"[LIMPIEZA] Eliminadas {n_sessions} sesiones y {n_metrics} métricas.")
     return n_sessions, n_metrics
 

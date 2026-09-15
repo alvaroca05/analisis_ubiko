@@ -97,8 +97,60 @@ ACWR_DANGER_ZONE = 1.50   # Por encima de 1.50: Zona de riesgo exponencial de le
 Z_SCORE_NORMAL = 1.0
 Z_SCORE_WARNING = 1.75
 
-# Umbrales de Cumplimiento Planificado vs Real
-COMPLIANCE_LOW_WARNING = 75.0   # Menos del 75%: déficit notable
-COMPLIANCE_OPTIMAL_MIN = 88.0   # 88% - 112%: cumplimiento óptimo
-COMPLIANCE_OPTIMAL_MAX = 112.0
-COMPLIANCE_HIGH_WARNING = 125.0  # Más del 125%: sobrecarga imprevista
+# Configuración Multitenant (Multiclub)
+DEFAULT_CLUB_ID = int(os.getenv("DEFAULT_CLUB_ID", 1))
+
+# Objetivos del microciclo relativos al Partido de Máxima Exigencia (100% individual)
+# Según periodización táctica pactada con el preparador físico:
+# MD-4 (Tensión/Fuerza): AC.E clave (objetivo ~90-95% AC.E)
+# MD-3 (Resistencia/Duración): Volumen clave (objetivo ~80-85% DT)
+# MD-2 (Velocidad/Táctica): Alta intensidad clave (objetivo ~65-75% HSR / picos sprint)
+# MD-1 (Activación): Volumen muy reducido (40-50% DT)
+MICROCYCLE_MATCH_TARGETS = {
+    "MD-4": {
+        "primary_metric": "acc_dec_eff",
+        "primary_label": "AC.E (Acel.+Desacel. Eficaces)",
+        "target_pct": 92.5,     # 90% - 95%
+        "pct_td": 0.58,
+        "pct_hsr": 0.40,
+        "pct_hmld": 0.55,
+        "pct_eff": 0.925
+    },
+    "MD-3": {
+        "primary_metric": "total_distance",
+        "primary_label": "Distancia Total (DT)",
+        "target_pct": 82.5,     # 80% - 85%
+        "pct_td": 0.825,
+        "pct_hsr": 0.65,
+        "pct_hmld": 0.78,
+        "pct_eff": 0.65
+    },
+    "MD-2": {
+        "primary_metric": "hsr_distance",
+        "primary_label": "HSR (>21 km/h)",
+        "target_pct": 70.0,     # 65% - 75%
+        "pct_td": 0.52,
+        "pct_hsr": 0.70,
+        "pct_hmld": 0.58,
+        "pct_eff": 0.50
+    },
+    "MD-1": {
+        "primary_metric": "total_distance",
+        "primary_label": "Distancia Total (Activación)",
+        "target_pct": 45.0,     # 40% - 50%
+        "pct_td": 0.45,
+        "pct_hsr": 0.25,
+        "pct_hmld": 0.35,
+        "pct_eff": 0.30
+    },
+    "MD": {
+        "primary_metric": "total_distance",
+        "primary_label": "Partido (100% Referencia)",
+        "target_pct": 100.0,
+        "pct_td": 1.00,
+        "pct_hsr": 1.00,
+        "pct_hmld": 1.00,
+        "pct_eff": 1.00
+    }
+}
+

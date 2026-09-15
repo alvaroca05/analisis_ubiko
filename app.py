@@ -11,18 +11,24 @@ import pandas as pd
 from sqlalchemy.orm import Session
 
 from src.config import (
+    DEFAULT_CLUB_ID,
     MICROCYCLE_DAYS,
     MICROCYCLE_DESCRIPTIONS,
     POSITIONS,
     DATABASE_PATH,
-    SAMPLES_DIR
+    SAMPLES_DIR,
+    MICROCYCLE_MATCH_TARGETS
 )
 from src.database.connection import get_db, init_db
-from src.database.models import Player, TrainingSession, PlayerMetric, TargetLoad
+from src.database.models import Player, TrainingSession, PlayerMetric, TargetLoad, PlayerMatchPeak
 from src.services.analytics import (
     calculate_session_summary,
     calculate_ewma_acwr,
     calculate_compliance_table,
+    calculate_individual_microcycle_compliance,
+    get_player_longitudinal_comparison,
+    get_player_match_peak,
+    sync_and_update_player_match_peaks,
     get_rpe_category
 )
 from src.services.importer import UbikoImporter
@@ -31,6 +37,8 @@ from src.utils.helpers import (
     create_acwr_longitudinal_chart,
     create_compliance_chart,
     create_zscore_chart,
+    create_training_vs_match_chart,
+    create_weekly_comparison_chart,
     render_semaforo_legend_html
 )
 from seed_data import seed_database
@@ -195,6 +203,10 @@ def bootstrap_database():
         # Ingesta inicial de CSVs locales si aún no están en la BD
         from src.services.importer import UbikoImporter
         UbikoImporter.sync_local_csv_samples(db)
+
+        # Sincronizar techos dinámicos del 100% de partido de máxima exigencia
+        from src.services.analytics import sync_and_update_player_match_peaks
+        sync_and_update_player_match_peaks(db)
     return True
 
 
@@ -290,6 +302,20 @@ def get_cached_player_acwr(player_id: int, metric: str = "total_distance"):
     """Cachea la serie temporal de EWMA ACWR de un futbolista."""
     with get_db() as db:
         return calculate_ewma_acwr(db, player_id, load_metric=metric)
+
+
+@st.cache_data(ttl=60)
+def get_cached_individual_compliance(session_id: int):
+    """Cachea la comparativa individual respecto al 100% de Partido de Máxima Exigencia."""
+    with get_db() as db:
+        return calculate_individual_microcycle_compliance(db, session_id)
+
+
+@st.cache_data(ttl=60)
+def get_cached_player_longitudinal(player_id: int):
+    """Cachea el histórico de sesiones y techo de partido 100% para comparativas."""
+    with get_db() as db:
+        return get_player_longitudinal_comparison(db, player_id)
 
 
 # ==========================================
@@ -470,7 +496,130 @@ if menu == "📊 Panel de Sesión & Semáforo":
             f"Carga Interna Media (sRPE) = **{sr_mean:.0f} AU** | Muestra evaluada: **{n_rpe} futbolistas**."
         )
 
-    # Filtros para la tabla
+    # ========================================================
+    # 1. SEMÁFORO DE FATIGA Y RIESGO LESIONAL (ACWR - EWMA)
+    # ========================================================
+    st.markdown("### 🚦 Semáforo de Fatiga y Riesgo Lesional (ACWR)")
+    st.caption("Control de fatiga aguda acumulada sobre aptitud física crónica (Gabbett EWMA).")
+
+    danger_players = df_metrics[df_metrics["acwr"] > 1.5]
+    caution_players = df_metrics[(df_metrics["acwr"] > 1.3) & (df_metrics["acwr"] <= 1.5)]
+    optimal_players = df_metrics[(df_metrics["acwr"] >= 0.8) & (df_metrics["acwr"] <= 1.3)]
+    under_players = df_metrics[df_metrics["acwr"] < 0.8]
+
+    sem1, sem2, sem3 = st.columns(3)
+    with sem1:
+        st.markdown(f"""
+        <div class="metric-card" style="border-left: 5px solid #10B981; background: rgba(16, 185, 129, 0.08);">
+            <div class="metric-title" style="color: #6EE7B7;">🟢 Óptimo (Sweet Spot 0.8 - 1.3)</div>
+            <div class="metric-value" style="color: #10B981;">{len(optimal_players)} <span style="font-size:0.9rem; color:#94A3B8;">jugadores</span></div>
+            <div class="metric-subtitle">Carga asimilable. Mínimo riesgo lesional.</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with sem2:
+        caution_names = ", ".join([f"#{row.dorsal} {row.player_name.split()[0]}" for _, row in caution_players.iterrows()]) if not caution_players.empty else "Ninguno"
+        st.markdown(f"""
+        <div class="metric-card" style="border-left: 5px solid #F59E0B; background: rgba(245, 158, 11, 0.08);">
+            <div class="metric-title" style="color: #FCD34D;">🟡 Alerta Fatiga (1.3 - 1.5)</div>
+            <div class="metric-value" style="color: #F59E0B;">{len(caution_players)} <span style="font-size:0.9rem; color:#94A3B8;">jugadores</span></div>
+            <div class="metric-subtitle"><b>Atención:</b> {caution_names}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with sem3:
+        danger_names = ", ".join([f"#{row.dorsal} {row.player_name.split()[0]}" for _, row in danger_players.iterrows()]) if not danger_players.empty else "Ninguno"
+        danger_bg = "rgba(239, 68, 68, 0.15)" if not danger_players.empty else "rgba(239, 68, 68, 0.05)"
+        st.markdown(f"""
+        <div class="metric-card" style="border-left: 5px solid #EF4444; background: {danger_bg};">
+            <div class="metric-title" style="color: #FCA5A5;">🔴 Riesgo Alto (> 1.5)</div>
+            <div class="metric-value" style="color: #EF4444;">{len(danger_players)} <span style="font-size:0.9rem; color:#94A3B8;">jugadores</span></div>
+            <div class="metric-subtitle"><b>Peligro lesión:</b> {danger_names}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.write("")
+
+    # ========================================================
+    # 2. SEMÁFORO DE CUMPLIMIENTO INDIVIDUAL DEL DÍA (PARTIDO DE MÁXIMA EXIGENCIA)
+    # ========================================================
+    df_indiv_compliance = get_cached_individual_compliance(selected_session_id)
+    day_cfg = MICROCYCLE_MATCH_TARGETS.get(sess.microcycle_day, MICROCYCLE_MATCH_TARGETS["MD"])
+
+    st.markdown(f"### 🎯 Semáforo de Cumplimiento Individual del Día ({sess.microcycle_day})")
+    st.markdown(
+        f"**Enfoque de prescripción:** {day_cfg['description']} | "
+        f"Métrica diana: **{day_cfg['key_label']}** (Prescrito: **{day_cfg['target_pct']}%** del Partido de Máxima Exigencia individual)."
+    )
+
+    if not df_indiv_compliance.empty:
+        col_ci1, col_ci2 = st.columns([1, 1])
+        with col_ci1:
+            ci_pos_filter = st.multiselect("Filtrar demarcación:", POSITIONS, default=POSITIONS, key="ci_pos_filter")
+        with col_ci2:
+            ci_status_filter = st.selectbox(
+                "Filtrar por Cumplimiento de Estímulo:",
+                ["Todos", "🟢 Cumplido (80% - 115%)", "🔴 Déficit de estímulo (<80%)", "🟠 Sobrecarga (>115%)"],
+                key="ci_status_filter"
+            )
+
+        df_ci_display = df_indiv_compliance[df_indiv_compliance["position"].isin(ci_pos_filter)].copy()
+        if ci_status_filter != "Todos":
+            if "Cumplido" in ci_status_filter:
+                df_ci_display = df_ci_display[df_ci_display["status"] == "Cumplido"]
+            elif "Déficit" in ci_status_filter:
+                df_ci_display = df_ci_display[df_ci_display["status"] == "Déficit"]
+            elif "Sobrecarga" in ci_status_filter:
+                df_ci_display = df_ci_display[df_ci_display["status"].isin(["Sobre-estímulo", "Exceso Severo"])]
+
+        df_table_ci = df_ci_display[[
+            "dorsal", "player_name", "position", "val_real_formatted",
+            "val_target_formatted", "val_match_100_formatted", "compliance_pct", "status", "peak_match_name"
+        ]].copy()
+        df_table_ci.columns = [
+            "Dorsal", "Jugador", "Posición", f"Real ({day_cfg['key_label']})",
+            f"Prescrito ({day_cfg['target_pct']}%)", "Partido 100% (Récord)", "% Cumplimiento", "Semáforo", "Partido de Referencia"
+        ]
+
+        def highlight_stimulus(val):
+            if "Déficit" in str(val):
+                return "background-color: rgba(239, 68, 68, 0.25); color: #FCA5A5; font-weight: bold;"
+            elif "Sobre" in str(val) or "Exceso" in str(val):
+                return "background-color: rgba(245, 158, 11, 0.25); color: #FCD34D; font-weight: bold;"
+            elif "Cumplido" in str(val):
+                return "background-color: rgba(16, 185, 129, 0.25); color: #6EE7B7; font-weight: bold;"
+            return ""
+
+        def highlight_pct(val):
+            try:
+                v = float(val)
+                if v < 80.0:
+                    return "background-color: rgba(239, 68, 68, 0.20); color: #F87171; font-weight: bold;"
+                elif v > 115.0:
+                    return "background-color: rgba(245, 158, 11, 0.20); color: #FBBF24; font-weight: bold;"
+                else:
+                    return "background-color: rgba(16, 185, 129, 0.20); color: #34D399; font-weight: bold;"
+            except Exception:
+                return ""
+
+        st.dataframe(
+            df_table_ci.style
+            .format({"% Cumplimiento": "{:.1f}%"})
+            .map(highlight_stimulus, subset=["Semáforo"])
+            .map(highlight_pct, subset=["% Cumplimiento"]),
+            width="stretch",
+            hide_index=True
+        )
+    else:
+        st.info("Sin registros de prescripción individual disponibles para esta sesión.")
+
+    st.write("")
+    st.divider()
+
+    # ========================================================
+    # 3. MONITOR DE CARGA COMPLETO Y FILTROS
+    # ========================================================
+    # Filtros para la tabla general
     col_f1, col_f2 = st.columns([1, 1])
     with col_f1:
         filter_pos = st.multiselect("Filtrar por Demarcación:", POSITIONS, default=POSITIONS)
@@ -505,7 +654,7 @@ if menu == "📊 Panel de Sesión & Semáforo":
             * Si un jugador tiene un RPE alto (7-10) con una distancia GPS normal, indica **fatiga neuromuscular oculta** o necesidad de descanso.
             """)
 
-    st.subheader(f"Monitor de Carga Individual & Semáforo ({len(df_filtered)} jugadores)")
+    st.subheader(f"Telemetría GPS Completa de la Sesión ({len(df_filtered)} jugadores)")
 
     has_rpe = "rpe" in df_filtered.columns and df_filtered["rpe"].dropna().count() > 0
     if has_rpe:
@@ -675,9 +824,35 @@ elif menu == "📈 Evolución Longitudinal & ACWR":
         # Leyenda visual del semáforo fisiológico
         st.markdown(render_semaforo_legend_html(), unsafe_allow_html=True)
 
-        # Gráfico longitudinal interactivo de Plotly
+        # Gráfico longitudinal interactivo de Plotly (ACWR EWMA)
         fig_acwr = create_acwr_longitudinal_chart(df_acwr, player_name)
         st.plotly_chart(fig_acwr, width="stretch")
+
+        st.divider()
+
+        # Comparativa Directa Entrenamiento vs. Partido de Máxima Exigencia y Evolución Semana a Semana
+        comp_data = get_cached_player_longitudinal(selected_player_id)
+        df_hist = comp_data.get("history", pd.DataFrame())
+        peak_match = comp_data.get("peak")
+
+        col_ch1, col_ch2 = st.columns(2)
+        with col_ch1:
+            st.subheader("⚔️ Entrenamiento vs. Partido de Máxima Exigencia")
+            st.caption("Compara la carga de las sesiones contra el 100% de competición del jugador.")
+            if not df_hist.empty and peak_match:
+                fig_match_comp = create_training_vs_match_chart(df_hist, peak_match, player_name)
+                st.plotly_chart(fig_match_comp, width="stretch")
+            else:
+                st.info("No hay suficientes datos de partido para este jugador.")
+
+        with col_ch2:
+            st.subheader("📅 Evolución Semana a Semana (Volumen e Intensidad)")
+            st.caption("Compara el volumen total (DT) y la alta velocidad (HSR) acumulados por semana.")
+            if not df_hist.empty:
+                fig_weekly = create_weekly_comparison_chart(df_hist, player_name)
+                st.plotly_chart(fig_weekly, width="stretch")
+            else:
+                st.info("No hay suficiente histórico semanal.")
 
         # Histórico de sesiones del jugador en tabla expandible
         with st.expander("Ver tabla histórica detallada de sesiones"):

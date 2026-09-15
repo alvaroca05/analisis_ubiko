@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional, Union
 import pandas as pd
 from sqlalchemy.orm import Session
 
+from src.config import DEFAULT_CLUB_ID
 from src.database.models import Player, TrainingSession, PlayerMetric
 
 
@@ -199,21 +200,22 @@ class UbikoImporter:
         microcycle_day: str,
         session_type: str = "Entrenamiento",
         duration_minutes: int = 75,
-        notes: str = ""
+        notes: str = "",
+        club_id: int = DEFAULT_CLUB_ID
     ) -> Dict[str, Any]:
         """
         Guarda la sesión y las métricas de los jugadores en la base de datos de manera transaccional e idempotente.
-        Si la sesión ya existe en esa fecha y nombre:
-          - Reutiliza la sesión existente y actualiza sus metadatos.
-          - Borra las métricas anteriores asociadas para evitar duplicaciones.
+        Soporta multitenant mediante club_id.
+        Si la sesión es un partido (MD o session_type='Partido'), actualiza automáticamente los techos
+        del Partido de Máxima Exigencia para todos los futbolistas involucrados.
         """
         warnings = []
         players_processed = 0
 
-        # Idempotencia: comprobar si la sesión ya existe para esa fecha y nombre
+        # Idempotencia: comprobar si la sesión ya existe para este club, fecha y nombre
         existing_session = (
             db_session.query(TrainingSession)
-            .filter_by(date=session_date, name=session_name)
+            .filter_by(club_id=club_id, date=session_date, name=session_name)
             .first()
         )
 
@@ -230,6 +232,7 @@ class UbikoImporter:
             warnings.append(f"Sesión existente '{session_name}' ({session_date}) actualizada; métricas previas reescritas.")
         else:
             new_session = TrainingSession(
+                club_id=club_id,
                 date=session_date,
                 name=session_name,
                 microcycle_day=microcycle_day,
@@ -255,35 +258,33 @@ class UbikoImporter:
             if not position or position.lower() == "nan":
                 position = "Mediocentro"
 
-            # Buscar jugador:
+            # Buscar jugador dentro del mismo club:
             player = None
-            # 1. Si viene dorsal, buscar coincidencia exacta de dorsal
             if dorsal is not None:
-                player = db_session.query(Player).filter(Player.dorsal == dorsal).first()
+                player = db_session.query(Player).filter(Player.club_id == club_id, Player.dorsal == dorsal).first()
 
-            # 2. Si no viene dorsal o no hubo match, buscar por nombre normalizado (sin acentos, case-insensitive)
             if not player and player_name:
                 normalized_target = cls._normalize_name(player_name)
-                all_players = db_session.query(Player).all()
+                all_players = db_session.query(Player).filter(Player.club_id == club_id).all()
                 for p in all_players:
                     norm_db = cls._normalize_name(p.name)
                     if normalized_target == norm_db or normalized_target in norm_db or norm_db in normalized_target:
                         player = p
                         break
 
-            # 3. Si no existe, registrarlo con dorsal provisional libre (evitando colisión con dorsales existentes)
+            # Si no existe en el club, registrarlo con dorsal libre
             if not player:
-                if dorsal is not None and not db_session.query(Player).filter(Player.dorsal == dorsal).first():
+                if dorsal is not None and not db_session.query(Player).filter(Player.club_id == club_id, Player.dorsal == dorsal).first():
                     assigned_dorsal = dorsal
                 else:
-                    # Encontrar el menor dorsal positivo libre
-                    used_dorsals = {p.dorsal for p in db_session.query(Player.dorsal).all()}
+                    used_dorsals = {p.dorsal for p in db_session.query(Player.dorsal).filter(Player.club_id == club_id).all()}
                     candidate = 1
                     while candidate in used_dorsals:
                         candidate += 1
                     assigned_dorsal = candidate
 
                 player = Player(
+                    club_id=club_id,
                     name=player_name,
                     dorsal=assigned_dorsal,
                     position=position,
@@ -315,6 +316,7 @@ class UbikoImporter:
                 continue
 
             metric = PlayerMetric(
+                club_id=club_id,
                 player_id=player.id,
                 session_id=new_session.id,
                 minutes_played=mins_val,
@@ -332,6 +334,14 @@ class UbikoImporter:
             players_processed += 1
 
         db_session.commit()
+
+        # Si la sesión es un partido, disparar la actualización dinámica de techos 100%
+        if session_type == "Partido" or microcycle_day == "MD":
+            try:
+                from src.services.analytics import sync_and_update_player_match_peaks
+                sync_and_update_player_match_peaks(db_session, club_id=club_id)
+            except Exception as e_peaks:
+                print(f"[IMPORTER AVISO] Error al actualizar techos de partido: {e_peaks}")
 
         return {
             "success": True,
