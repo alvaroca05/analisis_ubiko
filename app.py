@@ -5,59 +5,73 @@ Interfaz interactiva 100% Python desarrollada con Streamlit.
 """
 
 import os
+import sys
+from pathlib import Path
 from datetime import date, datetime
 import time
 import streamlit as st
 import pandas as pd
 from sqlalchemy.orm import Session
 
-from src.config import (
-    DEFAULT_CLUB_ID,
-    MICROCYCLE_DAYS,
-    MICROCYCLE_DESCRIPTIONS,
-    POSITIONS,
-    DATABASE_PATH,
-    SAMPLES_DIR,
-    MICROCYCLE_MATCH_TARGETS
-)
-from src.database.connection import get_db, init_db
-from src.database.models import Player, TrainingSession, PlayerMetric, TargetLoad, PlayerMatchPeak
-from src.services.analytics import (
-    calculate_session_summary,
-    calculate_ewma_acwr,
-    calculate_compliance_table,
-    calculate_individual_microcycle_compliance,
-    calculate_pre_session_prescription,
-    save_pre_session_prescription,
-    evaluate_multivariable_deficit,
-    get_player_longitudinal_comparison,
-    get_player_match_peak,
-    sync_and_update_player_match_peaks,
-    get_rpe_category,
-    get_all_reference_matches,
-    get_match_reference_table_data,
-    calculate_excel_pre_session_prescription,
-    get_post_session_multivariable_table
-)
-from src.services.importer import UbikoImporter
-from src.services.report_generator import generate_tactical_report
-from src.utils.helpers import (
-    create_acwr_longitudinal_chart,
-    create_compliance_chart,
-    create_zscore_chart,
-    create_training_vs_match_chart,
-    create_weekly_comparison_chart,
-    render_semaforo_legend_html
-)
-from seed_data import seed_database
+# Asegurar la raíz del proyecto en el path de Python (crítico para Streamlit Cloud en Linux)
+BASE_DIR = Path(__file__).resolve().parent
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
 
-# Configuración de página Streamlit
+# Configuración de página Streamlit (debe ser el primer comando de Streamlit)
 st.set_page_config(
     page_title="UBIKO Performance & Tactical Hub",
     page_icon="⚽",
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+try:
+    from src.config import (
+        DEFAULT_CLUB_ID,
+        MICROCYCLE_DAYS,
+        MICROCYCLE_DESCRIPTIONS,
+        POSITIONS,
+        DATABASE_PATH,
+        SAMPLES_DIR,
+        MICROCYCLE_MATCH_TARGETS
+    )
+    from src.database.connection import get_db, init_db
+    from src.database.models import Player, TrainingSession, PlayerMetric, TargetLoad, PlayerMatchPeak
+    from src.services.analytics import (
+        calculate_session_summary,
+        calculate_ewma_acwr,
+        calculate_compliance_table,
+        calculate_individual_microcycle_compliance,
+        calculate_pre_session_prescription,
+        save_pre_session_prescription,
+        evaluate_multivariable_deficit,
+        get_player_longitudinal_comparison,
+        get_player_match_peak,
+        sync_and_update_player_match_peaks,
+        get_rpe_category,
+        get_all_reference_matches,
+        get_match_reference_table_data,
+        calculate_excel_pre_session_prescription,
+        get_post_session_multivariable_table
+    )
+    from src.services.importer import UbikoImporter
+    from src.services.report_generator import generate_tactical_report
+    from src.utils.helpers import (
+        create_acwr_longitudinal_chart,
+        create_compliance_chart,
+        create_zscore_chart,
+        create_training_vs_match_chart,
+        create_weekly_comparison_chart,
+        render_semaforo_legend_html
+    )
+    from seed_data import seed_database
+except Exception as e_import:
+    import traceback
+    st.error(f"❌ **Error al cargar los módulos del sistema**: `{e_import}`")
+    st.code(traceback.format_exc(), language="python")
+    st.stop()
+
 
 # Estilos CSS personalizados para temática deportiva profesional de alto rendimiento
 st.markdown("""

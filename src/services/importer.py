@@ -6,14 +6,17 @@ Diseñado específicamente para la estructura real exportada por el software UBI
 - Mapeo de demarcaciones tácticas estándar (defender/LTI -> Lateral, defender/CIZ -> Central, etc.).
 """
 
+import re
+from pathlib import Path
 from datetime import date, datetime
 from io import BytesIO, StringIO
 from typing import Any, Dict, List, Optional, Union
 import pandas as pd
 from sqlalchemy.orm import Session
 
-from src.config import DEFAULT_CLUB_ID
+from src.config import DEFAULT_CLUB_ID, SAMPLES_DIR
 from src.database.models import Player, TrainingSession, PlayerMetric
+
 
 
 # Mapeo de sinónimos de columnas comunes en exportaciones de UBIKO
