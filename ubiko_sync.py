@@ -79,27 +79,38 @@ class UbikoSyncService:
 
     def fetch_and_sync(self, force: bool = False, min_date: Optional[date] = None) -> Dict[str, Any]:
         """
-        Flujo principal de extracción desatendida:
-        1. Abre navegador Chromium con viewport 1920x1080.
-        2. Inicia sesión en UBIKO (o reutiliza cookies guardadas).
-        3. Localiza las sesiones computadas en la tabla desde min_date.
-        4. Descarga los CSV de telemetría de forma desatendida.
-        5. Ingesta los datos en SQLite y genera el informe táctico.
+        Flujo de extracción y sincronización:
+        1. Sincroniza primero las sesiones CSV disponibles localmente en data/samples/.
+        2. Si Playwright está disponible y configurado, intenta la extracción web desatendida.
+        3. Si está en entorno cloud sin interfaz o falla Playwright, finaliza limpiamente con los datos locales.
         """
+        from src.database.connection import get_db
+        from src.services.importer import UbikoImporter
+
+        # Paso 1: Sincronizar siempre las sesiones locales de telemetría primero
+        local_synced = 0
+        try:
+            with get_db() as db:
+                loc_res = UbikoImporter.sync_local_csv_samples(db, force=force)
+                local_synced = loc_res.get("synced_count", 0)
+        except Exception as e_loc:
+            print(f"[UBIKO] Aviso al sincronizar archivos locales: {e_loc}")
+
         try:
             from playwright.sync_api import sync_playwright
         except ImportError:
             return {
-                "success": False,
-                "status": "error",
-                "message": "Playwright no está disponible. Ejecuta: pip install playwright && playwright install chromium"
+                "success": True,
+                "status": "local_only",
+                "message": f"Sincronizadas {local_synced} sesiones desde archivos locales (Playwright no disponible en este entorno)."
             }
 
         import subprocess
 
         # En Linux o contenedores cloud sin pantalla gráfica ($DISPLAY), forzar headless=True
         is_headless = self.headless
-        if os.name != "nt" and not os.getenv("DISPLAY"):
+        is_cloud_linux = os.name != "nt" and not os.getenv("DISPLAY")
+        if is_cloud_linux:
             is_headless = True
 
         launch_args = [
@@ -115,19 +126,26 @@ class UbikoSyncService:
                 try:
                     browser = p.chromium.launch(
                         headless=is_headless,
-                        args=launch_args
+                        args=launch_args,
+                        timeout=25000
                     )
                 except Exception as e_launch:
                     err_str = str(e_launch).lower()
-                    if "executable doesn't exist" in err_str or "playwright install" in err_str:
+                    if ("executable doesn't exist" in err_str or "playwright install" in err_str) and not is_cloud_linux:
                         print("[UBIKO] Descargando e instalando Chromium para Playwright...")
-                        subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
+                        subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True, timeout=90)
                         browser = p.chromium.launch(
                             headless=is_headless,
-                            args=launch_args
+                            args=launch_args,
+                            timeout=25000
                         )
                     else:
-                        raise e_launch
+                        print(f"[UBIKO] No se pudo iniciar Chromium en este entorno: {e_launch}")
+                        return {
+                            "success": True,
+                            "status": "local_synced",
+                            "message": f"Sesiones locales de telemetría sincronizadas ({local_synced} procesadas). La extracción web en vivo requiere ejecución en PC local."
+                        }
 
                 try:
                     return self._execute_session_fetch(browser, force=force, min_date=min_date)
@@ -139,7 +157,11 @@ class UbikoSyncService:
         except Exception as e:
             import traceback
             traceback.print_exc()
-            return {"success": False, "status": "error", "message": f"Error durante la automatización: {e}"}
+            return {
+                "success": True if local_synced > 0 else False,
+                "status": "warning",
+                "message": f"Sincronizadas {local_synced} sesiones locales. (Aviso web: {e})"
+            }
 
     def _execute_session_fetch(self, browser, force: bool = False, min_date: Optional[date] = None) -> Dict[str, Any]:
         # Configurar viewport a 1920x1080 para que la tabla y todos los botones de acción sean visibles

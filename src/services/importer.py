@@ -355,10 +355,11 @@ class UbikoImporter:
         }
 
     @classmethod
-    def sync_local_csv_samples(cls, db_session: Session) -> Dict[str, Any]:
+    def sync_local_csv_samples(cls, db_session: Session, force: bool = False) -> Dict[str, Any]:
         """
         Escanea la carpeta de muestras data/samples y sincroniza automáticamente
-        cualquier sesión CSV que no esté todavía registrada en la base de datos.
+        cualquier sesión CSV que no esté todavía registrada en la base de datos (o todas si force=True).
+        Actualiza además los techos de partidos de máxima exigencia.
         """
         import re
         from pathlib import Path
@@ -406,7 +407,7 @@ class UbikoImporter:
                 TrainingSession.name == clean_name
             ).first()
 
-            if existing:
+            if existing and not force:
                 continue
 
             # Determinar microciclo
@@ -443,6 +444,13 @@ class UbikoImporter:
                     synced.append(clean_name)
             except Exception as e_parse:
                 print(f"[AUTO-SYNC LOCAL ERROR] Error importando {fname}: {e_parse}")
+
+        if synced:
+            try:
+                from src.services.analytics import sync_and_update_player_match_peaks
+                sync_and_update_player_match_peaks(db_session)
+            except Exception as e_peaks:
+                print(f"[AUTO-SYNC LOCAL] Error actualizando picos de partido: {e_peaks}")
 
         return {"synced_count": len(synced), "sessions": synced}
 

@@ -407,37 +407,55 @@ with st.sidebar:
     st.divider()
     st.subheader("⚡ Sincronización UBIKO")
 
-    # Mostrar estado de la sincronización automática de arranque
+    # Mostrar estado de la sincronización automática de arranque si hubo novedades
     if st.session_state.get("auto_sync_status"):
         st.info(st.session_state["auto_sync_status"])
 
-    sync_from_date = st.date_input("Recopilar desde fecha:", value=date(2026, 9, 3), key="sidebar_sync_date")
-    force_sync = st.checkbox("Forzar re-descarga", value=False, key="sidebar_force_sync")
+    # Botón principal instantáneo: Sincronización desde archivos CSV locales (data/samples)
+    if st.button("⚡ Sincronizar Sesiones Reales (CSV)", type="primary", use_container_width=True, help="Carga y recalcula inmediatamente todas las sesiones y partidos de liga desde data/samples en <1 segundo."):
+        with st.spinner("Sincronizando sesiones de telemetría y recalculando techos..."):
+            with get_db() as db:
+                from src.services.importer import UbikoImporter
+                from src.services.analytics import sync_and_update_player_match_peaks
+                res_sync = UbikoImporter.sync_local_csv_samples(db, force=True)
+                sync_and_update_player_match_peaks(db)
+            st.cache_data.clear()
+            count = res_sync.get("synced_count", 0)
+            st.toast(f"¡Sincronizadas {count} sesiones con éxito!", icon="⚽")
+            st.success(f"✅ Se han procesado {count} sesiones reales y actualizado los partidos de referencia.")
+            time.sleep(1)
+            st.rerun()
 
-    is_windows = os.name == "nt"
-    visible_sync = st.checkbox(
-        "Mostrar navegador",
-        value=is_windows,
-        help="Abre la ventana de Chromium para ver la extracción en vivo (solo disponible en tu PC local)."
-    ) if is_windows else False
+    # Extracción web mediante Playwright (para ordenador local)
+    with st.expander("🌐 Extracción Web UBIKO (Playwright)", expanded=False):
+        st.caption("ℹ️ Descarga automáticamente nuevas sesiones conectándose a cloud.ubiko.io. Recomendado para tu ordenador local.")
+        sync_from_date = st.date_input("Recopilar desde fecha:", value=date(2026, 9, 3), key="sidebar_sync_date")
+        force_sync = st.checkbox("Forzar re-descarga web", value=False, key="sidebar_force_sync")
 
-    if not is_windows:
-        st.caption("☁️ Modo Cloud: La sincronización se ejecuta en segundo plano (headless).")
+        is_windows = os.name == "nt"
+        visible_sync = st.checkbox(
+            "Mostrar navegador",
+            value=is_windows,
+            help="Abre la ventana de Chromium para ver la extracción en vivo (solo en PC local)."
+        ) if is_windows else False
 
-    if st.button("🚀 Sincronizar Sesiones Ahora", use_container_width=True):
-        with st.spinner(f"Conectando a UBIKO Web y recopilando sesiones desde {sync_from_date.strftime('%d/%m/%Y')}..."):
-            import importlib
-            import ubiko_sync
-            importlib.reload(ubiko_sync)
-            res_sync = ubiko_sync.sync_latest_session(headless=not visible_sync, force=force_sync, min_date=sync_from_date)
-            if res_sync.get("success"):
-                st.cache_data.clear()
-                st.toast(res_sync.get("message", "Sincronizado con éxito"), icon="⚽")
-                st.success(res_sync.get("message"))
-                time.sleep(1)
-                st.rerun()
-            else:
-                st.error(res_sync.get("message", "Aviso de sincronización"))
+        if not is_windows:
+            st.caption("☁️ En Streamlit Cloud la web corre en modo headless sin pantalla gráfica.")
+
+        if st.button("🚀 Iniciar Extracción Web UBIKO", use_container_width=True):
+            with st.spinner(f"Conectando a UBIKO Web y recopilando sesiones desde {sync_from_date.strftime('%d/%m/%Y')}..."):
+                import importlib
+                import ubiko_sync
+                importlib.reload(ubiko_sync)
+                res_sync = ubiko_sync.sync_latest_session(headless=not visible_sync, force=force_sync, min_date=sync_from_date)
+                if res_sync.get("success"):
+                    st.cache_data.clear()
+                    st.toast(res_sync.get("message", "Sincronizado con éxito"), icon="⚽")
+                    st.success(res_sync.get("message"))
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.error(res_sync.get("message", "Aviso de sincronización"))
 
     col_sb1, col_sb2 = st.columns(2)
     with col_sb1:
