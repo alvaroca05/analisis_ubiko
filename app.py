@@ -238,60 +238,33 @@ bootstrap_database()
 
 def auto_check_ubiko_sessions():
     """
-    Comprueba de forma inteligente y ultraligera si falta alguna sesión por descargar en UBIKO.
-    Se ejecuta automáticamente al abrirse la aplicación.
-    Si han pasado más de 12 horas desde la última comprobación o la BD está desactualizada,
-    lanza el proceso desatendido para descargar cualquier nueva sesión computada.
+    Comprueba de forma ultrarrápida (<5ms) si hay nuevos CSVs locales en data/samples.
+    No bloquea la carga con scraping web pesado; la sincronización con UBIKO Web
+    se realiza bajo demanda pulsando '🚀 Sincronizar Sesiones Ahora' en la barra lateral.
     """
     if "last_auto_sync_check" not in st.session_state:
-        st.session_state["last_auto_sync_check"] = None
+        st.session_state["last_auto_sync_check"] = True
         st.session_state["auto_sync_status"] = None
 
-    now = datetime.now()
-    last_check = st.session_state["last_auto_sync_check"]
-
-    # Ejecutar sólo una vez por sesión de navegador o tras 12h
-    if last_check is None or (now - last_check).total_seconds() > 43200:
-        st.session_state["last_auto_sync_check"] = now
-        
-        # 1. Primero sincronizar si hay nuevos CSVs en data/samples
-        with get_db() as db:
-            from src.services.importer import UbikoImporter
-            local_res = UbikoImporter.sync_local_csv_samples(db)
-            if local_res.get("synced_count", 0) > 0:
-                st.session_state["auto_sync_status"] = f"✅ Se han incorporado {local_res['synced_count']} nueva(s) sesión(es) a la base de datos."
-                st.cache_data.clear()
-                return
-
-        # 2. Consultar fecha de última sesión en base de datos
-        with get_db() as db:
-            latest_sess = db.query(TrainingSession).order_by(TrainingSession.date.desc()).first()
-            latest_date = latest_sess.date if latest_sess else date(2026, 9, 3)
-
-        # Comprobar si falta alguna sesión en UBIKO Cloud desde el inicio de la temporada
+        # Sincronización instantánea de CSVs locales pendientes
         try:
-            import ubiko_sync
-            with st.spinner("🔄 Comprobando sesiones en UBIKO Cloud..."):
-                res = ubiko_sync.sync_latest_session(headless=True, force=False, min_date=date(2026, 8, 1))
-                if res.get("success") and res.get("synced_count", 0) > 0:
-                    st.session_state["auto_sync_status"] = f"⚽ ¡{res['synced_count']} nueva(s) sesión(es) descargada(s) y sincronizada(s) desde UBIKO!"
+            with get_db() as db:
+                from src.services.importer import UbikoImporter
+                local_res = UbikoImporter.sync_local_csv_samples(db)
+                if local_res.get("synced_count", 0) > 0:
+                    st.session_state["auto_sync_status"] = f"✅ Se han incorporado {local_res['synced_count']} nueva(s) sesión(es) a la base de datos."
                     st.cache_data.clear()
-                elif res.get("success"):
-                    st.session_state["auto_sync_status"] = "✅ Sesiones UBIKO al día. Sin descargas pendientes."
-                else:
-                    st.session_state["auto_sync_status"] = f"ℹ️ {res.get('message', 'Sincroniza desde tu PC local.')}"
-        except Exception as e_sync:
-            st.session_state["auto_sync_status"] = "ℹ️ Sincronizador en la nube en espera. Sincroniza desde tu PC local."
+        except Exception:
+            pass
 
 
-# Ejecutar comprobación automática al abrir la app
+# Ejecutar comprobación ultraligera al abrir la app
 auto_check_ubiko_sessions()
 
 
-
-@st.cache_data(ttl=30)
+@st.cache_data(ttl=600)
 def get_cached_sessions():
-    """Cachea la lista de sesiones durante 30s en RAM para no consultar Supabase en cada interacción."""
+    """Cachea la lista de sesiones durante 10 min en RAM para navegación instantánea."""
     with get_db() as db:
         sessions = (
             db.query(TrainingSession)
@@ -304,14 +277,14 @@ def get_cached_sessions():
         ]
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=600)
 def get_cached_session_summary(session_id: int):
     """Cachea los KPIs, z-scores y resumen de la sesión en RAM para renderizado a 60 FPS."""
     with get_db() as db:
         return calculate_session_summary(db, session_id)
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=600)
 def get_cached_players_list():
     """Cachea la lista de futbolistas activos."""
     with get_db() as db:
@@ -319,49 +292,49 @@ def get_cached_players_list():
         return [(p.id, p.dorsal, p.name, p.position, p.max_speed_kmh) for p in players]
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=600)
 def get_cached_player_acwr(player_id: int, metric: str = "total_distance"):
     """Cachea la serie temporal de EWMA ACWR de un futbolista."""
     with get_db() as db:
         return calculate_ewma_acwr(db, player_id, load_metric=metric)
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=600)
 def get_cached_individual_compliance(session_id: int):
     """Cachea la comparativa individual respecto al 100% de Partido de Máxima Exigencia."""
     with get_db() as db:
         return calculate_individual_microcycle_compliance(db, session_id)
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=600)
 def get_cached_player_longitudinal(player_id: int):
     """Cachea el histórico de sesiones y techo de partido 100% para comparativas."""
     with get_db() as db:
         return get_player_longitudinal_comparison(db, player_id)
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=600)
 def get_cached_pre_session_prescription(microcycle_day: str, pct_td: float, pct_hsr: float, pct_eff: float):
     """Cachea las metas cuantitativas mínimas requeridas para la plantilla en planificación pre-sesión."""
     with get_db() as db:
         return calculate_pre_session_prescription(db, microcycle_day, pct_td, pct_hsr, pct_eff)
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=600)
 def get_cached_all_reference_matches():
     """Cachea los partidos oficiales y bloques de referencia disponibles."""
     with get_db() as db:
         return get_all_reference_matches(db)
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=600)
 def get_cached_match_reference_table_data(session_id: Optional[int]):
     """Cachea la tabla de referencia de datos de partido idéntica al Excel del preparador."""
     with get_db() as db:
         return get_match_reference_table_data(db, session_id)
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=600)
 def get_cached_excel_pre_session_prescription(
     reference_session_id: Optional[int],
     microcycle_day: str,
@@ -377,11 +350,12 @@ def get_cached_excel_pre_session_prescription(
         )
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=600)
 def get_cached_post_session_multivariable_table(session_id: int, reference_session_id: Optional[int]):
     """Cachea la tabla de semáforo de déficit multivariable post-sesión."""
     with get_db() as db:
         return get_post_session_multivariable_table(db, session_id, reference_session_id)
+
 
 
 # ==========================================
