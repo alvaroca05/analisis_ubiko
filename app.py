@@ -411,51 +411,21 @@ with st.sidebar:
     if st.session_state.get("auto_sync_status"):
         st.info(st.session_state["auto_sync_status"])
 
-    # Botón principal instantáneo: Sincronización desde archivos CSV locales (data/samples)
-    if st.button("⚡ Sincronizar Sesiones Reales (CSV)", type="primary", use_container_width=True, help="Carga y recalcula inmediatamente todas las sesiones y partidos de liga desde data/samples en <1 segundo."):
-        with st.spinner("Sincronizando sesiones de telemetría y recalculando techos..."):
-            with get_db() as db:
-                from src.services.importer import UbikoImporter
-                from src.services.analytics import sync_and_update_player_match_peaks
-                res_sync = UbikoImporter.sync_local_csv_samples(db, force=True)
-                sync_and_update_player_match_peaks(db)
+    sync_from_date = st.date_input("Recopilar desde fecha:", value=date(2026, 9, 3), key="sidebar_sync_date")
+    force_sync = st.checkbox("Forzar re-sincronización", value=False, key="sidebar_force_sync")
+
+    if st.button("🚀 Sincronizar Sesiones Ahora", type="primary", use_container_width=True):
+        with st.spinner("Conectando con UBIKO y actualizando sesiones..."):
+            import importlib
+            import ubiko_sync
+            importlib.reload(ubiko_sync)
+            res_sync = ubiko_sync.sync_latest_session(headless=True, force=force_sync, min_date=sync_from_date)
             st.cache_data.clear()
-            count = res_sync.get("synced_count", 0)
-            st.toast(f"¡Sincronizadas {count} sesiones con éxito!", icon="⚽")
-            st.success(f"✅ Se han procesado {count} sesiones reales y actualizado los partidos de referencia.")
+            msg = res_sync.get("message", "Sesiones sincronizadas con éxito.")
+            st.toast(msg, icon="⚽")
+            st.success(f"✅ {msg}")
             time.sleep(1)
             st.rerun()
-
-    # Extracción web mediante Playwright (para ordenador local)
-    with st.expander("🌐 Extracción Web UBIKO (Playwright)", expanded=False):
-        st.caption("ℹ️ Descarga automáticamente nuevas sesiones conectándose a cloud.ubiko.io. Recomendado para tu ordenador local.")
-        sync_from_date = st.date_input("Recopilar desde fecha:", value=date(2026, 9, 3), key="sidebar_sync_date")
-        force_sync = st.checkbox("Forzar re-descarga web", value=False, key="sidebar_force_sync")
-
-        is_windows = os.name == "nt"
-        visible_sync = st.checkbox(
-            "Mostrar navegador",
-            value=is_windows,
-            help="Abre la ventana de Chromium para ver la extracción en vivo (solo en PC local)."
-        ) if is_windows else False
-
-        if not is_windows:
-            st.caption("☁️ En Streamlit Cloud la web corre en modo headless sin pantalla gráfica.")
-
-        if st.button("🚀 Iniciar Extracción Web UBIKO", use_container_width=True):
-            with st.spinner(f"Conectando a UBIKO Web y recopilando sesiones desde {sync_from_date.strftime('%d/%m/%Y')}..."):
-                import importlib
-                import ubiko_sync
-                importlib.reload(ubiko_sync)
-                res_sync = ubiko_sync.sync_latest_session(headless=not visible_sync, force=force_sync, min_date=sync_from_date)
-                if res_sync.get("success"):
-                    st.cache_data.clear()
-                    st.toast(res_sync.get("message", "Sincronizado con éxito"), icon="⚽")
-                    st.success(res_sync.get("message"))
-                    time.sleep(1)
-                    st.rerun()
-                else:
-                    st.error(res_sync.get("message", "Aviso de sincronización"))
 
     col_sb1, col_sb2 = st.columns(2)
     with col_sb1:
@@ -1797,7 +1767,7 @@ elif menu == "📥 Ingesta de Datos GPS (UBIKO)":
                         df_parsed=df_real,
                         session_date=date(2026, 9, 7),
                         session_name="SESIÓN 26 - MD+1 COMPENSATORIO",
-                        microcycle_day="MD-1",
+                        microcycle_day="MD+1",
                         session_type="Entrenamiento",
                         duration_minutes=65,
                         notes="Sesión compensatoria real de los chalecos GPS UBIKO del Salerm Puente Genil"
