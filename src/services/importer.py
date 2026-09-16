@@ -368,11 +368,31 @@ class UbikoImporter:
         if not SAMPLES_DIR.exists():
             return {"synced_count": 0, "sessions": []}
 
+        # 1. Purgar cualquier sesión residual con fecha errónea futura del 20/09/2026
+        try:
+            err_sessions = db_session.query(TrainingSession).filter(TrainingSession.date == date(2026, 9, 20)).all()
+            for es in err_sessions:
+                db_session.query(PlayerMetric).filter(PlayerMetric.session_id == es.id).delete()
+                db_session.delete(es)
+            if err_sessions:
+                db_session.flush()
+        except Exception:
+            pass
+
         csv_files = sorted(list(SAMPLES_DIR.glob("*.csv")))
         synced = []
 
         for csv_path in csv_files:
             fname = csv_path.name
+
+            # Si existe el archivo antiguo con la fecha errónea del 20/09, eliminarlo
+            if "20260920" in fname or "20-9-2026" in fname:
+                try:
+                    csv_path.unlink(missing_ok=True)
+                except Exception:
+                    pass
+                continue
+
             # Extraer fecha del nombre o contenido
             date_match = re.search(r"(\d{4})(\d{2})(\d{2})", fname)
             sess_date = None

@@ -433,14 +433,15 @@ class UbikoSyncService:
             # Deducir día del microciclo
             name_upper = s_name.upper()
             micro_day = "MD-3"
-            sess_type = "Entrenamiento"
-            if "MD-4" in name_upper or "MD+4" in name_upper:
+            if "MD-4" in name_upper:
                 micro_day = "MD-4"
-            elif "MD-3" in name_upper or "MD+3" in name_upper:
+            elif "MD-3" in name_upper:
                 micro_day = "MD-3"
-            elif "MD-2" in name_upper or "MD+2" in name_upper:
+            elif "MD-2" in name_upper:
                 micro_day = "MD-2"
-            elif "MD-1" in name_upper or "MD+1" in name_upper:
+            elif "MD+1" in name_upper:
+                micro_day = "MD+1"
+            elif "MD-1" in name_upper:
                 micro_day = "MD-1"
             elif "PARTIDO" in name_upper or "MD" in name_upper:
                 micro_day = "MD"

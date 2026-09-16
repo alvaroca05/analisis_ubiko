@@ -201,13 +201,15 @@ class UbikoWebAutomator:
             sess_type = "Entrenamiento"
             name_upper = session_name.upper()
 
-            if "MD-4" in name_upper or "MD+4" in name_upper:
+            if "MD-4" in name_upper:
                 micro_day = "MD-4"
-            elif "MD-3" in name_upper or "MD+3" in name_upper:
+            elif "MD-3" in name_upper:
                 micro_day = "MD-3"
-            elif "MD-2" in name_upper or "MD+2" in name_upper:
+            elif "MD-2" in name_upper:
                 micro_day = "MD-2"
-            elif "MD-1" in name_upper or "MD+1" in name_upper:
+            elif "MD+1" in name_upper:
+                micro_day = "MD+1"
+            elif "MD-1" in name_upper:
                 micro_day = "MD-1"
             elif "PARTIDO" in name_upper or "MD" in name_upper:
                 micro_day = "MD"
