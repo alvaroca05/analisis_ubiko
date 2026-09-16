@@ -224,7 +224,26 @@ def bootstrap_database():
 
         # Ingesta inicial de CSVs locales si aún no están en la BD
         from src.services.importer import UbikoImporter
-        UbikoImporter.sync_local_csv_samples(db)
+        # Auto-corrección: asegurar que las sesiones MD+1 no queden marcadas como MD-1
+        try:
+            from src.database.models import TrainingSession, PlayerMetric
+            # 1. Corregir cualquier sesión con MD+1 en el nombre que tuviera microcycle_day='MD-1'
+            db.query(TrainingSession).filter(
+                TrainingSession.name.ilike("%MD+1%"),
+                TrainingSession.microcycle_day == "MD-1"
+            ).update({"microcycle_day": "MD+1"}, synchronize_session=False)
+
+            # 2. Si existe un duplicado ficticio MD-1 el lunes 14/09/2026, eliminarlo
+            dup_md1 = db.query(TrainingSession).filter(
+                TrainingSession.date == date(2026, 9, 14),
+                TrainingSession.microcycle_day == "MD-1"
+            ).all()
+            for d in dup_md1:
+                db.query(PlayerMetric).filter(PlayerMetric.session_id == d.id).delete()
+                db.delete(d)
+            db.commit()
+        except Exception:
+            pass
 
         # Sincronizar techos dinámicos del 100% de partido de máxima exigencia
         from src.services.analytics import sync_and_update_player_match_peaks
@@ -1037,11 +1056,31 @@ elif menu == "🏟️ Referencia Partidos (Excel P.F.)":
             hide_index=True
         )
 
-        col_dl1, col_dl2 = st.columns([3, 1])
+        col_dl1, col_dl2, col_dl3 = st.columns([1.6, 1.3, 1.1])
         with col_dl2:
+            try:
+                from src.services.pdf_generator import generate_match_reference_pdf
+                pdf_data = generate_match_reference_pdf(
+                    match_title=selected_match_label,
+                    df_rows=df_view
+                )
+                safe_fname = selected_match_label.replace("🏟️", "").replace("🏆", "").strip().replace(" ", "_")[:28]
+                st.download_button(
+                    label="📄 Descargar PDF Oficial (P.F.)",
+                    data=pdf_data,
+                    file_name=f"referencia_oficial_{safe_fname}.pdf",
+                    mime="application/pdf",
+                    type="primary",
+                    use_container_width=True,
+                    help="Descarga el documento PDF con el diseño y colores idénticos a las tablas del preparador físico."
+                )
+            except Exception as e_pdf:
+                st.error(f"Aviso generando PDF: {e_pdf}")
+
+        with col_dl3:
             csv_data = df_view[cols_clean].to_csv(index=False, sep=";").encode("utf-8-sig")
             st.download_button(
-                "📥 Descargar Tabla (CSV Excel)",
+                "📥 Descargar CSV",
                 data=csv_data,
                 file_name=f"referencia_partido_{selected_match_id or 'record'}.csv",
                 mime="text/csv",
