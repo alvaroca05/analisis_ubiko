@@ -245,9 +245,9 @@ def bootstrap_database():
 bootstrap_database()
 
 
-@st.cache_data(ttl=15)
+@st.cache_data(ttl=300)
 def get_cached_sessions():
-    """Cachea la lista de sesiones durante 15 seg en RAM para reflejar datos de Supabase de inmediato."""
+    """Cachea la lista de sesiones durante 5 min en RAM (se invalida automáticamente al sincronizar)."""
     with get_db() as db:
         sessions = (
             db.query(TrainingSession)
@@ -309,7 +309,7 @@ def get_cached_pre_session_prescription(microcycle_day: str, pct_td: float, pct_
         return calculate_pre_session_prescription(db, microcycle_day, pct_td, pct_hsr, pct_eff)
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=300)
 def get_cached_all_reference_matches(include_individual_peaks: bool = True):
     """Cachea los partidos oficiales y bloques de referencia disponibles."""
     with get_db() as db:
@@ -323,7 +323,7 @@ def get_cached_all_reference_matches(include_individual_peaks: bool = True):
         return matches
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=300)
 def get_cached_match_reference_table_data(session_id: Optional[int], top_player_id: Optional[int] = None):
     """Cachea la tabla de referencia de datos de partido idéntica al Excel del preparador."""
     with get_db() as db:

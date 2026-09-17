@@ -8,6 +8,7 @@ Implementa:
 - Sistema de semáforos ejecutivos: Estado de fatiga (ACWR) y Semáforo de Cumplimiento del Día.
 """
 
+from collections import defaultdict
 from datetime import date, datetime
 from types import SimpleNamespace
 from typing import Dict, List, Optional, Tuple, Any
@@ -333,8 +334,11 @@ def sync_and_update_player_match_peaks(db: Session, club_id: int = DEFAULT_CLUB_
     1. Localiza sus valores máximos alcanzados en partido de liga (DT, HSR, Sprint, HMLD, AC.E, Vmax).
     2. Si en jornadas posteriores un nuevo partido supera esos máximos, actualiza automáticamente
        ese nuevo techo del 100% en la tabla `player_match_peaks`.
+    OPTIMIZADO: Consultas batch de partidos, picos existentes y entrenamientos para evitar N*M roundtrips.
     """
     players = db.query(Player).filter(Player.club_id == club_id, Player.active == True).all()
+    if not players:
+        return {"created": 0, "updated": 0}
 
     # Partidos oficiales de Liga del club ordenados cronológicamente
     candidate_sessions = (
@@ -347,45 +351,60 @@ def sync_and_update_player_match_peaks(db: Session, club_id: int = DEFAULT_CLUB_
         .all()
     )
     matches = [m for m in candidate_sessions if is_official_league_match(m)]
-
     match_ids = [m.id for m in matches]
     match_dict = {m.id: m for m in matches}
+
+    # 1. Cargar picos existentes en 1 consulta
+    existing_peaks = {
+        pk.player_id: pk
+        for pk in db.query(PlayerMatchPeak).filter(PlayerMatchPeak.club_id == club_id).all()
+    }
+
+    # 2. Cargar métricas de partidos en 1 consulta
+    match_metrics_by_player = defaultdict(list)
+    if match_ids:
+        all_match_metrics = (
+            db.query(PlayerMetric)
+            .filter(PlayerMetric.session_id.in_(match_ids))
+            .all()
+        )
+        for mm in all_match_metrics:
+            match_metrics_by_player[mm.player_id].append(mm)
+
+    # 3. Cargar métricas de entrenamientos en 1 consulta (fallback si no jugó partidos)
+    all_train_metrics = (
+        db.query(PlayerMetric, TrainingSession)
+        .join(TrainingSession, PlayerMetric.session_id == TrainingSession.id)
+        .filter(
+            TrainingSession.club_id == club_id,
+            TrainingSession.session_type != "Partido",
+            TrainingSession.microcycle_day != "MD"
+        )
+        .all()
+    )
+    train_metrics_by_player = defaultdict(list)
+    for tm, ts in all_train_metrics:
+        train_metrics_by_player[tm.player_id].append((tm, ts))
 
     updated_count = 0
     created_count = 0
 
-    for p in players:
-        current_peak = (
-            db.query(PlayerMatchPeak)
-            .filter(PlayerMatchPeak.club_id == club_id, PlayerMatchPeak.player_id == p.id)
-            .first()
+    def _calc_demand_score(m):
+        return (
+            (m.total_distance or 0.0) * 0.35 +
+            (m.hsr_distance or 0.0) * 0.25 +
+            ((m.accelerations_eff or 0) + (m.decelerations_eff or 0)) * 15.0
         )
 
-        # 1. Buscar métricas de partidos oficiales de liga para este jugador
-        if match_ids:
-            p_match_metrics = (
-                db.query(PlayerMetric)
-                .filter(
-                    PlayerMetric.player_id == p.id,
-                    PlayerMetric.session_id.in_(match_ids)
-                )
-                .all()
-            )
-        else:
-            p_match_metrics = []
+    for p in players:
+        current_peak = existing_peaks.get(p.id)
+        p_match_metrics = match_metrics_by_player.get(p.id, [])
 
         # Partidos donde disputó minutos significativos (>= 5000m y >= 45 min)
         full_matches = [
             m for m in p_match_metrics
             if (m.total_distance or 0) >= 5000 and (m.minutes_played or 0) >= 45
         ]
-
-        def _calc_demand_score(m):
-            return (
-                (m.total_distance or 0.0) * 0.35 +
-                (m.hsr_distance or 0.0) * 0.25 +
-                ((m.accelerations_eff or 0) + (m.decelerations_eff or 0)) * 15.0
-            )
 
         if full_matches:
             # Caso 1: Ha jugado partido oficial con minutos significativos -> Seleccionar el partido donde más haya rendido
@@ -405,18 +424,7 @@ def sync_and_update_player_match_peaks(db: Session, club_id: int = DEFAULT_CLUB_
             max_vmax = max(float(best_metric.max_speed or 0.0), p.max_speed_kmh or 30.0)
         else:
             # Caso 2: No ha jugado o ha jugado pocos minutos -> Usar el entrenamiento con mayor exigencia física
-            train_metrics = (
-                db.query(PlayerMetric, TrainingSession)
-                .join(TrainingSession, PlayerMetric.session_id == TrainingSession.id)
-                .filter(
-                    PlayerMetric.player_id == p.id,
-                    TrainingSession.club_id == club_id,
-                    TrainingSession.session_type != "Partido",
-                    TrainingSession.microcycle_day != "MD"
-                )
-                .all()
-            )
-
+            train_metrics = train_metrics_by_player.get(p.id, [])
             if train_metrics:
                 best_tm, best_ts = max(train_metrics, key=lambda pair: _calc_demand_score(pair[0]))
                 sess_name = f"Entreno {best_ts.microcycle_day} ({best_ts.date.strftime('%d/%m/%Y')})"
@@ -529,8 +537,12 @@ def calculate_individual_microcycle_compliance(
     if not sess:
         return pd.DataFrame()
 
-    # Asegurar que los picos del partido estén sincronizados
-    sync_and_update_player_match_peaks(db, club_id=club_id)
+    # Cargar picos del 100% en 1 sola consulta batch
+    peaks_list = db.query(PlayerMatchPeak).filter(PlayerMatchPeak.club_id == club_id).all()
+    if not peaks_list:
+        sync_and_update_player_match_peaks(db, club_id=club_id)
+        peaks_list = db.query(PlayerMatchPeak).filter(PlayerMatchPeak.club_id == club_id).all()
+    peaks_by_player = {p.player_id: p for p in peaks_list}
 
     micro_cfg = MICROCYCLE_MATCH_TARGETS.get(sess.microcycle_day, MICROCYCLE_MATCH_TARGETS["MD-3"])
     key_metric = micro_cfg["primary_metric"]
@@ -562,7 +574,7 @@ def calculate_individual_microcycle_compliance(
 
     rows = []
     for m in metrics:
-        peak = get_player_match_peak(db, m.player_id, club_id=club_id)
+        peak = peaks_by_player.get(m.player_id)
         if not peak:
             continue
 
@@ -669,7 +681,11 @@ def calculate_pre_session_prescription(
     Calcula las metas cuantitativas mínimas requeridas para toda la plantilla ANTES del entrenamiento
     aplicando los porcentajes configurados por el preparador físico al 100% individual del partido récord.
     """
-    sync_and_update_player_match_peaks(db, club_id=club_id)
+    peaks_list = db.query(PlayerMatchPeak).filter(PlayerMatchPeak.club_id == club_id).all()
+    if not peaks_list:
+        sync_and_update_player_match_peaks(db, club_id=club_id)
+        peaks_list = db.query(PlayerMatchPeak).filter(PlayerMatchPeak.club_id == club_id).all()
+    peaks_by_player = {p.player_id: p for p in peaks_list}
 
     players = (
         db.query(Player)
@@ -680,7 +696,7 @@ def calculate_pre_session_prescription(
 
     rows = []
     for p in players:
-        peak = get_player_match_peak(db, p.id, club_id=club_id)
+        peak = peaks_by_player.get(p.id)
         if not peak:
             continue
 
@@ -855,22 +871,103 @@ def calculate_ewma_acwr(
 def get_latest_player_acwr(session: Session, target_date: Optional[date] = None, club_id: int = DEFAULT_CLUB_ID) -> pd.DataFrame:
     """
     Calcula el ACWR más reciente de todos los futbolistas del club a una fecha determinada.
+    OPTIMIZADO: Carga todas las sesiones en 1 sola consulta batch y computa EWMA por jugador en memoria.
     """
     players = session.query(Player).filter(Player.club_id == club_id, Player.active == True).all()
+    if not players:
+        return pd.DataFrame()
+
+    query = (
+        session.query(
+            PlayerMetric.player_id,
+            TrainingSession.date,
+            TrainingSession.id.label("session_id"),
+            TrainingSession.microcycle_day,
+            TrainingSession.session_type,
+            PlayerMetric.total_distance.label("load_value"),
+            PlayerMetric.total_distance,
+            PlayerMetric.hsr_distance,
+            PlayerMetric.hmld,
+            (PlayerMetric.accelerations_eff + PlayerMetric.decelerations_eff).label("acc_dec_eff"),
+            PlayerMetric.max_speed,
+            PlayerMetric.rpe
+        )
+        .join(PlayerMetric, TrainingSession.id == PlayerMetric.session_id)
+        .filter(TrainingSession.club_id == club_id)
+        .order_by(TrainingSession.date.asc())
+    )
+    df_all = pd.read_sql(query.statement, session.bind)
+    if df_all.empty:
+        return pd.DataFrame()
+
+    df_all["date"] = pd.to_datetime(df_all["date"])
     records = []
+    grouped = df_all.groupby("player_id")
 
     for p in players:
-        df_acwr = calculate_ewma_acwr(session, p.id, load_metric="total_distance", club_id=club_id)
-        if df_acwr.empty:
+        if p.id not in grouped.groups:
+            continue
+        df_p = grouped.get_group(p.id)
+        if df_p.empty:
             continue
 
+        numeric_cols = ["load_value", "total_distance", "hsr_distance", "hmld", "acc_dec_eff"]
+        agg_dict = {col: "sum" for col in numeric_cols if col in df_p.columns}
+        if "max_speed" in df_p.columns:
+            agg_dict["max_speed"] = "max"
+        if "rpe" in df_p.columns:
+            agg_dict["rpe"] = "mean"
+        if "microcycle_day" in df_p.columns:
+            agg_dict["microcycle_day"] = "last"
+        if "session_type" in df_p.columns:
+            agg_dict["session_type"] = "last"
+        if "session_id" in df_p.columns:
+            agg_dict["session_id"] = "last"
+
+        df_daily_agg = df_p.groupby("date").agg(agg_dict)
+
+        start_date = df_p["date"].min()
+        end_date = df_p["date"].max()
+        full_idx = pd.date_range(start_date, end_date, freq="D", name="date")
+
+        df_daily = df_daily_agg.reindex(full_idx)
+        df_daily["load_value"] = df_daily["load_value"].fillna(0.0)
+
+        acute_series = []
+        chronic_series = []
+
+        acute_prev = df_daily["load_value"].iloc[0]
+        chronic_prev = df_daily["load_value"].iloc[0]
+
+        for val in df_daily["load_value"]:
+            acute_curr = (val * LAMBDA_ACUTE) + ((1.0 - LAMBDA_ACUTE) * acute_prev)
+            chronic_curr = (val * LAMBDA_CHRONIC) + ((1.0 - LAMBDA_CHRONIC) * chronic_prev)
+            acute_series.append(acute_curr)
+            chronic_series.append(chronic_curr)
+            acute_prev = acute_curr
+            chronic_prev = chronic_curr
+
+        df_daily["acute_ewma"] = acute_series
+        df_daily["chronic_ewma"] = chronic_series
+
+        df_daily["acwr"] = np.where(
+            df_daily["chronic_ewma"] > 1e-3,
+            df_daily["acute_ewma"] / df_daily["chronic_ewma"],
+            np.nan
+        )
+
+        df_result = df_daily.reset_index()
+        status_info = df_result["acwr"].apply(get_acwr_status)
+        df_result["acwr_status"] = [s[0] for s in status_info]
+        df_result["acwr_color"] = [s[1] for s in status_info]
+
         if target_date:
-            df_sub = df_acwr[df_acwr["date"].dt.date <= target_date]
+            df_sub = df_result[df_result["date"].dt.date <= target_date]
             if df_sub.empty:
                 continue
             last_row = df_sub.iloc[-1]
         else:
-            last_row = df_acwr.iloc[-1]
+            last_row = df_result.iloc[-1]
 
         records.append({
             "player_id": p.id,
@@ -1167,11 +1264,28 @@ def get_all_reference_matches(
 
     # Filtrar exclusivamente partidos oficiales de Liga (excluyendo pretemporada y entrenamientos)
     league_sessions = [s for s in all_sessions if is_official_league_match(s)]
+    sess_ids = [s.id for s in league_sessions]
+
+    # Pre-cargar estadísticas por sesión en 1 sola consulta batch agrupada
+    stats_by_sess = {}
+    if sess_ids:
+        agg_rows = (
+            db.query(
+                PlayerMetric.session_id,
+                func.count(PlayerMetric.id),
+                func.sum(PlayerMetric.total_distance)
+            )
+            .filter(PlayerMetric.session_id.in_(sess_ids))
+            .group_by(PlayerMetric.session_id)
+            .all()
+        )
+        for s_id, cnt, dist in agg_rows:
+            stats_by_sess[s_id] = (cnt, dist or 0.0)
 
     # Deduplicar por rival / fecha, priorizando la sesión oficial importada de Ubiko con datos reales
     deduped_matches = {}
     for s in league_sessions:
-        p_count = db.query(PlayerMetric).filter(PlayerMetric.session_id == s.id).count()
+        p_count, _ = stats_by_sess.get(s.id, (0, 0.0))
         if p_count == 0:
             continue
 
@@ -1198,6 +1312,7 @@ def get_all_reference_matches(
 
     # Opción 0: Máxima Exigencia Individual (SOLO si se solicita explícitamente para planificación pre-sesión)
     if include_individual_peaks:
+        active_player_count = db.query(Player.id).filter(Player.club_id == club_id, Player.active == True).count()
         res.append({
             "session_id": None,
             "key": "PEAK_CONSOLIDATED",
@@ -1205,13 +1320,12 @@ def get_all_reference_matches(
             "name": "Máxima Exigencia Individual (100% de cada jugador)",
             "label": "⭐ Máxima Exigencia Individual (100% Techo Dinámico de cada jugador)",
             "date": date.today(),
-            "num_players": db.query(Player).filter(Player.club_id == club_id, Player.active == True).count(),
+            "num_players": active_player_count,
             "total_distance_km": 0.0
         })
 
     for idx, m in enumerate(sorted_league_matches, 1):
-        p_count = db.query(PlayerMetric).filter(PlayerMetric.session_id == m.id).count()
-        tot_dist_m = db.query(func.sum(PlayerMetric.total_distance)).filter(PlayerMetric.session_id == m.id).scalar() or 0.0
+        p_count, tot_dist_m = stats_by_sess.get(m.id, (0, 0.0))
 
         clean_name = m.name.upper()
         if "MIJAS" in clean_name or "LAGUNAS" in clean_name:
@@ -1347,7 +1461,9 @@ def get_match_reference_table_data(
             })
     else:
         # Usar Partido Récord / Techo Dinámico individual (100%)
-        sync_and_update_player_match_peaks(db, club_id=club_id)
+        has_peaks = db.query(PlayerMatchPeak.id).filter(PlayerMatchPeak.club_id == club_id).first()
+        if not has_peaks:
+            sync_and_update_player_match_peaks(db, club_id=club_id)
         peaks = (
             db.query(
                 Player.id.label("player_id"),
