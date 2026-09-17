@@ -1146,7 +1146,9 @@ def calculate_compliance_table(df_metrics: pd.DataFrame, targets_dict: Optional[
 def get_all_reference_matches(
     db: Session,
     club_id: int = DEFAULT_CLUB_ID,
-    include_individual_peaks: bool = True
+    include_individual_peaks: bool = True,
+    *args,
+    **kwargs
 ) -> List[Dict[str, Any]]:
     """
     Recupera exclusivamente los partidos oficiales de Liga regular (Temporada 26/27).
@@ -1244,7 +1246,9 @@ def get_match_reference_table_data(
     db: Session,
     session_id: Optional[int] = None,
     club_id: int = DEFAULT_CLUB_ID,
-    top_player_id: Optional[int] = None
+    top_player_id: Optional[int] = None,
+    *args,
+    **kwargs
 ) -> Dict[str, Any]:
     """
     Genera la tabla de referencia de datos de partido idéntica al formato Excel del preparador físico:

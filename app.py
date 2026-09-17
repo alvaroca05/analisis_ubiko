@@ -299,18 +299,28 @@ def get_cached_pre_session_prescription(microcycle_day: str, pct_td: float, pct_
         return calculate_pre_session_prescription(db, microcycle_day, pct_td, pct_hsr, pct_eff)
 
 
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=60)
 def get_cached_all_reference_matches(include_individual_peaks: bool = True):
     """Cachea los partidos oficiales y bloques de referencia disponibles."""
     with get_db() as db:
-        return get_all_reference_matches(db, include_individual_peaks=include_individual_peaks)
+        try:
+            matches = get_all_reference_matches(db, include_individual_peaks=include_individual_peaks)
+        except TypeError:
+            matches = get_all_reference_matches(db)
+        
+        if not include_individual_peaks:
+            matches = [m for m in matches if m.get("session_id") is not None]
+        return matches
 
 
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=60)
 def get_cached_match_reference_table_data(session_id: Optional[int], top_player_id: Optional[int] = None):
     """Cachea la tabla de referencia de datos de partido idéntica al Excel del preparador."""
     with get_db() as db:
-        return get_match_reference_table_data(db, session_id, top_player_id=top_player_id)
+        try:
+            return get_match_reference_table_data(db, session_id, top_player_id=top_player_id)
+        except TypeError:
+            return get_match_reference_table_data(db, session_id)
 
 
 @st.cache_data(ttl=600)
