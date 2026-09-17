@@ -225,29 +225,6 @@ def bootstrap_database():
             from seed_data import seed_roster_and_targets
             seed_roster_and_targets()
 
-        # Ingesta inicial de CSVs locales si aún no están en la BD
-        from src.services.importer import UbikoImporter
-        # Auto-corrección: asegurar que las sesiones MD+1 no queden marcadas como MD-1
-        try:
-            from src.database.models import TrainingSession, PlayerMetric
-            # 1. Corregir cualquier sesión con MD+1 en el nombre que tuviera microcycle_day='MD-1'
-            db.query(TrainingSession).filter(
-                TrainingSession.name.ilike("%MD+1%"),
-                TrainingSession.microcycle_day == "MD-1"
-            ).update({"microcycle_day": "MD+1"}, synchronize_session=False)
-
-            # 2. Si existe un duplicado ficticio MD-1 el lunes 14/09/2026, eliminarlo
-            dup_md1 = db.query(TrainingSession).filter(
-                TrainingSession.date == date(2026, 9, 14),
-                TrainingSession.microcycle_day == "MD-1"
-            ).all()
-            for d in dup_md1:
-                db.query(PlayerMetric).filter(PlayerMetric.session_id == d.id).delete()
-                db.delete(d)
-            db.commit()
-        except Exception:
-            pass
-
         # Sincronizar techos dinámicos del 100% de partido de máxima exigencia
         from src.services.analytics import sync_and_update_player_match_peaks
         sync_and_update_player_match_peaks(db)
@@ -258,45 +235,25 @@ def bootstrap_database():
 bootstrap_database()
 
 
-def auto_check_ubiko_sessions():
-    """
-    Comprueba de forma ultrarrápida (<5ms) si hay nuevos CSVs locales en data/samples.
-    No bloquea la carga con scraping web pesado; la sincronización con UBIKO Web
-    se realiza bajo demanda pulsando '🚀 Sincronizar Sesiones Ahora' en la barra lateral.
-    """
-    if "last_auto_sync_check" not in st.session_state:
-        st.session_state["last_auto_sync_check"] = True
-        st.session_state["auto_sync_status"] = None
-
-        # Sincronización instantánea de CSVs locales pendientes
-        try:
-            with get_db() as db:
-                from src.services.importer import UbikoImporter
-                local_res = UbikoImporter.sync_local_csv_samples(db)
-                if local_res.get("synced_count", 0) > 0:
-                    st.session_state["auto_sync_status"] = f"✅ Se han incorporado {local_res['synced_count']} nueva(s) sesión(es) a la base de datos."
-                    st.cache_data.clear()
-        except Exception:
-            pass
-
-
-# Ejecutar comprobación ultraligera al abrir la app
-auto_check_ubiko_sessions()
-
-
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=15)
 def get_cached_sessions():
-    """Cachea la lista de sesiones durante 10 min en RAM para navegación instantánea."""
+    """Cachea la lista de sesiones durante 15 seg en RAM para reflejar datos de Supabase de inmediato."""
     with get_db() as db:
         sessions = (
             db.query(TrainingSession)
             .order_by(TrainingSession.date.desc())
             .all()
         )
-        return [
-            (s.id, f"{s.date.strftime('%d/%m/%Y')} - {s.microcycle_day} ({s.session_type})")
-            for s in sessions
-        ]
+        result = []
+        seen = set()
+        for s in sessions:
+            label = f"{s.date.strftime('%d/%m/%Y')} - {s.microcycle_day} ({s.session_type})"
+            if label in seen:
+                clean_name = s.name.replace("TEMPORADA_", "").replace("SESIÓN_", "S").replace("SESION_", "S")
+                label = f"{s.date.strftime('%d/%m/%Y')} - {s.microcycle_day} [{clean_name[:15]}]"
+            seen.add(label)
+            result.append((s.id, label))
+        return result
 
 
 @st.cache_data(ttl=600)
@@ -436,26 +393,36 @@ with st.sidebar:
 
     st.divider()
     st.subheader("⚡ Sincronización UBIKO")
-
-    # Mostrar estado de la sincronización automática de arranque si hubo novedades
-    if st.session_state.get("auto_sync_status"):
-        st.info(st.session_state["auto_sync_status"])
+    st.caption("☁️ Base de datos activa: **Supabase (Nube)**")
 
     sync_from_date = st.date_input("Recopilar desde fecha:", value=date(2026, 9, 3), key="sidebar_sync_date")
-    force_sync = st.checkbox("Forzar re-sincronización", value=False, key="sidebar_force_sync")
+    col_opt1, col_opt2 = st.columns(2)
+    with col_opt1:
+        force_sync = st.checkbox("Forzar todo", value=False, key="sidebar_force_sync", help="Re-descarga e ingesta sesiones en Supabase aunque ya existan.")
+    with col_opt2:
+        visible_sync = st.checkbox("Ver navegador", value=False, key="sidebar_visible_sync", help="Muestra la ventana del navegador para verificar el login o descargas en UBIKO.")
 
     if st.button("🚀 Sincronizar Sesiones Ahora", type="primary", use_container_width=True):
-        with st.spinner("Conectando con UBIKO y actualizando sesiones..."):
+        with st.spinner("Conectando con UBIKO Web y guardando en Supabase..."):
             import importlib
             import ubiko_sync
             importlib.reload(ubiko_sync)
-            res_sync = ubiko_sync.sync_latest_session(headless=True, force=force_sync, min_date=sync_from_date)
+            res_sync = ubiko_sync.sync_latest_session(headless=not visible_sync, force=force_sync, min_date=sync_from_date)
             st.cache_data.clear()
-            msg = res_sync.get("message", "Sesiones sincronizadas con éxito.")
-            st.toast(msg, icon="⚽")
-            st.success(f"✅ {msg}")
-            time.sleep(1)
-            st.rerun()
+
+            is_success = res_sync.get("success", False)
+            synced_count = res_sync.get("synced_count", 0)
+            msg = res_sync.get("message", "Sincronización con Supabase completada.")
+
+            if is_success and synced_count > 0:
+                st.toast(msg, icon="⚽")
+                st.success(f"✅ {msg}")
+                time.sleep(1.2)
+                st.rerun()
+            elif is_success and synced_count == 0:
+                st.info(f"ℹ️ {msg}")
+            else:
+                st.error(f"❌ {msg}")
 
     col_sb1, col_sb2 = st.columns(2)
     with col_sb1:
@@ -1220,7 +1187,7 @@ elif menu == "📋 Planificación Pre-Sesión":
     with col_cfg0:
         curr_label = st.session_state.get("active_ref_match_label")
         labels_list = list(match_dict.keys())
-        default_idx = labels_list.index(curr_label) if curr_label in labels_list else (1 if len(labels_list) > 1 else 0)
+        default_idx = labels_list.index(curr_label) if curr_label in labels_list else 0
         sel_ref_label = st.selectbox(
             "Partido de Referencia (Base 100%):",
             labels_list,

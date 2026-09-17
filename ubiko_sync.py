@@ -79,32 +79,19 @@ class UbikoSyncService:
 
     def fetch_and_sync(self, force: bool = False, min_date: Optional[date] = None) -> Dict[str, Any]:
         """
-        Flujo de extracción y sincronización:
-        1. Sincroniza primero las sesiones CSV disponibles localmente en data/samples/.
-        2. Si Playwright está disponible y configurado, intenta la extracción web desatendida.
-        3. Si está en entorno cloud sin interfaz o falla Playwright, finaliza limpiamente con los datos locales.
+        Flujo de extracción y sincronización directa con Supabase:
+        1. Conecta con UBIKO Web mediante Playwright.
+        2. Descarga la telemetría CSV de cada sesión pendiente directamente en memoria.
+        3. Parsea e inserta los datos directamente en la base de datos PostgreSQL de Supabase en la nube.
+        4. Actualiza los techos de Máxima Exigencia en Supabase sin escribir archivos en disco local.
         """
-        from src.database.connection import get_db
-        from src.services.importer import UbikoImporter
-
-        # Paso 1: Sincronizar siempre las sesiones locales de telemetría primero
-        local_synced = 0
-        try:
-            with get_db() as db:
-                loc_res = UbikoImporter.sync_local_csv_samples(db, force=force)
-                from src.services.analytics import sync_and_update_player_match_peaks
-                sync_and_update_player_match_peaks(db)
-                local_synced = loc_res.get("synced_count", 0)
-        except Exception as e_loc:
-            print(f"[UBIKO] Aviso al sincronizar archivos locales: {e_loc}")
-
         try:
             from playwright.sync_api import sync_playwright
         except ImportError:
             return {
-                "success": True,
-                "status": "local_only",
-                "message": f"Sincronizadas {local_synced} sesiones con éxito. Base de datos y métricas al día."
+                "success": False,
+                "status": "missing_playwright",
+                "message": "Playwright no está disponible en el entorno para sincronizar con UBIKO Web."
             }
 
         import subprocess
@@ -115,39 +102,55 @@ class UbikoSyncService:
         if is_cloud_linux:
             is_headless = True
 
-        launch_args = [
-            "--start-maximized",
-            "--disable-blink-features=AutomationControlled",
-            "--no-sandbox",
-            "--disable-setuid-sandbox",
-            "--disable-dev-shm-usage"
-        ]
-
         try:
             with sync_playwright() as p:
+                browser = None
+                launch_errors = []
+
+                # Intento 1: Chromium estándar de Playwright
                 try:
-                    browser = p.chromium.launch(
-                        headless=is_headless,
-                        args=launch_args,
-                        timeout=15000
-                    )
-                except Exception as e_launch:
-                    err_str = str(e_launch).lower()
-                    if ("executable doesn't exist" in err_str or "playwright install" in err_str) and not is_cloud_linux:
+                    browser = p.chromium.launch(headless=is_headless, timeout=25000)
+                except Exception as e1:
+                    launch_errors.append(f"Chromium: {e1}")
+
+                # Intento 2: Microsoft Edge nativo de Windows
+                if not browser and os.name == "nt":
+                    try:
+                        browser = p.chromium.launch(channel="msedge", headless=is_headless, timeout=25000)
+                    except Exception as e2:
+                        launch_errors.append(f"Edge: {e2}")
+
+                # Intento 3: Google Chrome nativo
+                if not browser:
+                    try:
+                        browser = p.chromium.launch(channel="chrome", headless=is_headless, timeout=25000)
+                    except Exception as e3:
+                        launch_errors.append(f"Chrome: {e3}")
+
+                # Intento 4: Si era headless y falló, intentar headless=False
+                if not browser and is_headless and not is_cloud_linux:
+                    try:
+                        browser = p.chromium.launch(headless=False, timeout=25000)
+                    except Exception as e4:
+                        launch_errors.append(f"Visible: {e4}")
+
+                # Intento 5: Auto-instalación de Chromium si faltaba
+                if not browser and not is_cloud_linux:
+                    try:
                         print("[UBIKO] Descargando e instalando Chromium para Playwright...")
-                        subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True, timeout=60)
-                        browser = p.chromium.launch(
-                            headless=is_headless,
-                            args=launch_args,
-                            timeout=15000
-                        )
-                    else:
-                        print(f"[UBIKO] Chromium no disponible en este entorno: {e_launch}")
-                        return {
-                            "success": True,
-                            "status": "local_synced",
-                            "message": f"Sesiones sincronizadas con éxito ({local_synced} sesiones al día). Techos y métricas actualizados."
-                        }
+                        subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True, timeout=120)
+                        browser = p.chromium.launch(headless=is_headless, timeout=25000)
+                    except Exception as e5:
+                        launch_errors.append(f"Install: {e5}")
+
+                if not browser:
+                    err_msg = launch_errors[0] if launch_errors else "Navegador no disponible"
+                    print(f"[UBIKO ERROR] No se pudo iniciar navegador: {' | '.join(launch_errors)}")
+                    return {
+                        "success": False,
+                        "status": "browser_error",
+                        "message": f"No se pudo iniciar el navegador de sincronización ({err_msg}). Prueba activando 'Ver navegador en pantalla' o descarga el CSV en UBIKO Web."
+                    }
 
                 try:
                     return self._execute_session_fetch(browser, force=force, min_date=min_date)
@@ -160,9 +163,9 @@ class UbikoSyncService:
             import traceback
             traceback.print_exc()
             return {
-                "success": True,
-                "status": "completed",
-                "message": f"Sesiones sincronizadas con éxito ({local_synced} sesiones procesadas). Métricas y referencias al día."
+                "success": False,
+                "status": "error",
+                "message": f"Error en la sincronización con UBIKO: {e}"
             }
 
     def _execute_session_fetch(self, browser, force: bool = False, min_date: Optional[date] = None) -> Dict[str, Any]:
@@ -181,8 +184,8 @@ class UbikoSyncService:
         try:
             # 1. Navegar a UBIKO
             print(f"[UBIKO] Accediendo a: {self.base_url}")
-            page.goto(self.base_url, wait_until="domcontentloaded", timeout=15000)
-            time.sleep(1)
+            page.goto(self.base_url, wait_until="domcontentloaded", timeout=25000)
+            time.sleep(2)
 
             # 2. Login automático si se presentan campos de login
             is_login_page = "login" in page.url.lower() or "signin" in page.url.lower() or bool(page.query_selector('input[type="password"]'))
@@ -195,43 +198,44 @@ class UbikoSyncService:
                         print(f"[UBIKO] Introduciendo credenciales para: {UBIKO_USER}")
                         user_input.fill(UBIKO_USER)
                         pass_input.fill(UBIKO_PASSWORD)
-                        submit_btn = page.query_selector('button[type="submit"], input[type="submit"], button:has-text("Entrar"), button:has-text("Iniciar"), button:has-text("Acceder")')
+                        submit_btn = page.query_selector('button[type="submit"], input[type="submit"], button:has-text("Entrar"), button:has-text("Iniciar"), button:has-text("Acceder"), #kt_sign_in_submit')
                         if submit_btn:
                             submit_btn.click()
-                            print("[UBIKO] Credenciales enviadas, esperando carga...")
+                            print("[UBIKO] Credenciales enviadas, esperando autenticación...")
                             try:
-                                page.wait_for_selector('input[type="password"]', state="detached", timeout=10000)
+                                page.wait_for_url(lambda u: "login" not in u.lower(), timeout=15000)
                             except Exception:
                                 pass
-                            time.sleep(1.5)
+                            time.sleep(2)
                 else:
                     return {
-                        "success": True,
-                        "status": "auth_skipped",
-                        "message": "Sesiones sincronizadas. Configura credenciales en .env si deseas extracción automática."
+                        "success": False,
+                        "status": "auth_required",
+                        "message": "Se requiere inicio de sesión en UBIKO. Configura credenciales en .env o activa 'Ver navegador en pantalla'."
                     }
 
             print(f"[UBIKO] Página activa: {page.url} | '{page.title()}'")
 
-            # Guardar sesión autenticada
-            try:
-                context.storage_state(path=str(SESSION_STORAGE))
-            except Exception:
-                pass
+            # Guardar sesión autenticada si ya no estamos en login
+            if "login" not in page.url.lower():
+                try:
+                    context.storage_state(path=str(SESSION_STORAGE))
+                except Exception:
+                    pass
 
             # 3. Acceder al apartado de Sesiones del equipo (/team/sessions)
             target_sessions_url = "https://admin.ubikosports.com/team/sessions"
             if "team/sessions" not in page.url.lower():
                 print(f"[UBIKO] Navegando a la sección de sesiones del equipo: {target_sessions_url}")
                 try:
-                    page.goto(target_sessions_url, wait_until="domcontentloaded", timeout=15000)
-                    time.sleep(1.5)
+                    page.goto(target_sessions_url, wait_until="domcontentloaded", timeout=20000)
+                    time.sleep(2)
                 except Exception as e_nav:
                     print(f"[UBIKO] Error navegando directamente ({e_nav}), intentando clic en menú 'Sesiones'...")
                     try:
                         sesiones_nav = page.locator("nav, header, .navbar, .menu, body").get_by_text("Sesiones", exact=False).first
                         sesiones_nav.click()
-                        time.sleep(1.5)
+                        time.sleep(2)
                     except Exception:
                         pass
 
@@ -239,20 +243,28 @@ class UbikoSyncService:
             print(f"[UBIKO] Página activa de sesiones: {page.url}")
             print("[UBIKO] Esperando a que carguen las sesiones realizadas...")
             try:
-                page.locator("table tbody tr").first.wait_for(timeout=12000)
-            except Exception as e_wait:
-                print(f"[UBIKO AVISO] Timeout breve esperando tabla de sesiones: {e_wait}")
-                return {
-                    "success": True,
-                    "status": "ready",
-                    "message": "Sincronización completada con éxito. Base de datos y referencias de partido actualizadas."
-                }
+                page.wait_for_selector("table tbody tr", timeout=25000)
+            except Exception:
+                try:
+                    page.locator("text=Sesiones").first.wait_for(timeout=10000)
+                except Exception as e_wait:
+                    if "login" in page.url.lower():
+                        return {
+                            "success": False,
+                            "status": "login_needed",
+                            "message": "La sesión de UBIKO ha caducado. Activa 'Ver navegador en pantalla' para iniciar sesión."
+                        }
+                    return {
+                        "success": False,
+                        "status": "table_timeout",
+                        "message": f"Tiempo de espera agotado esperando la tabla de sesiones en UBIKO ({e_wait})."
+                    }
         except Exception as e_flow:
-            print(f"[UBIKO AVISO EN FLUJO WEB] {e_flow}")
+            print(f"[UBIKO ERROR EN FLUJO WEB] {e_flow}")
             return {
-                "success": True,
-                "status": "fallback",
-                "message": "Sincronización completada con éxito. Base de datos y referencias de partido actualizadas."
+                "success": False,
+                "status": "flow_error",
+                "message": f"Error conectando a UBIKO Web: {e_flow}"
             }
 
         time.sleep(1.5)
@@ -420,12 +432,13 @@ class UbikoSyncService:
                 print(f"[UBIKO ERROR] No se pudo descargar el CSV para la sesión '{s_name}'.")
                 continue
 
-            dest_file = SAMPLES_DIR / f"ubiko_{s_date.strftime('%Y%m%d')}_{download.suggested_filename}"
-            download.save_as(str(dest_file))
-            print(f"[UBIKO] CSV guardado en: {dest_file.name}")
+            import tempfile
+            with tempfile.TemporaryDirectory() as tmpdir:
+                tmp_csv = Path(tmpdir) / download.suggested_filename
+                download.save_as(str(tmp_csv))
+                print(f"[UBIKO] Parseando telemetría en memoria para '{s_name}'...")
+                df_parsed = UbikoImporter.parse_file(tmp_csv, download.suggested_filename)
 
-            # Parsear con UbikoImporter
-            df_parsed = UbikoImporter.parse_file(dest_file, dest_file.name)
             if df_parsed.empty:
                 print(f"[UBIKO] Archivo sin registros válidos para '{s_name}'.")
                 continue
@@ -433,6 +446,7 @@ class UbikoSyncService:
             # Deducir día del microciclo
             name_upper = s_name.upper()
             micro_day = "MD-3"
+            sess_type = "Entrenamiento"
             if "MD-4" in name_upper:
                 micro_day = "MD-4"
             elif "MD-3" in name_upper:
@@ -447,7 +461,7 @@ class UbikoSyncService:
                 micro_day = "MD"
                 sess_type = "Partido"
 
-            # Ingesta en SQLite
+            # Ingesta en Supabase (PostgreSQL Nube)
             with get_db() as db:
                 # Asegurar porteros oficiales (Estepa #1, Luengo #13)
                 db.query(Player).filter(Player.dorsal.in_([1, 13])).update({"position": "Portero"}, synchronize_session=False)
@@ -473,7 +487,7 @@ class UbikoSyncService:
                     microcycle_day=micro_day,
                     session_type=sess_type,
                     duration_minutes=int(df_parsed.get("minutes_played", pd.Series([75])).max() or 75),
-                    notes="Sincronizado automáticamente desde UBIKO Web"
+                    notes="Sincronizado directamente a Supabase desde UBIKO Web"
                 )
 
                 summ = calculate_session_summary(db, import_res["session_id"])
@@ -482,14 +496,6 @@ class UbikoSyncService:
                 except Exception as e_rep:
                     rep = f"Informe pendiente de computar: {e_rep}"
                 reports.append(rep)
-
-            # Guardar informe físico
-            try:
-                report_file = REPORTS_DIR / f"informe_{s_date.strftime('%Y%m%d')}_{s_name[:15]}.txt"
-                with open(report_file, "w", encoding="utf-8") as f:
-                    f.write(rep)
-            except Exception:
-                pass
 
             synced_sessions.append({
                 "id": import_res["session_id"],
@@ -500,13 +506,27 @@ class UbikoSyncService:
             })
             print(f"[UBIKO] ¡Sesión '{s_name}' ingestada correctamente! ({import_res['players_processed']} jugadores)")
 
+        newly_synced = [s for s in synced_sessions if s.get("status") == "newly_synced"]
+        already_synced = [s for s in synced_sessions if s.get("status") == "already_synced"]
+
+        if newly_synced:
+            msg = f"Se han sincronizado e integrado exitosamente {len(newly_synced)} nuevas sesiones en la base de datos."
+            is_ok = True
+        elif already_synced:
+            msg = f"Todas las sesiones disponibles ({len(already_synced)}) ya se encuentran sincronizadas y al día."
+            is_ok = True
+        else:
+            msg = "No se pudieron descargar nuevas sesiones desde UBIKO Web. Comprueba que estén en estado 'Computada'."
+            is_ok = False
+
         return {
-            "success": True,
-            "status": "batch_completed",
-            "synced_count": len(synced_sessions),
+            "success": is_ok,
+            "status": "batch_completed" if newly_synced else ("up_to_date" if already_synced else "no_sessions_downloaded"),
+            "synced_count": len(newly_synced),
+            "total_checked": len(synced_sessions),
             "sessions": synced_sessions,
             "report": reports[-1] if reports else "",
-            "message": f"Se han sincronizado e integrado exitosamente {len(synced_sessions)} sesiones desde el {min_sync_date.strftime('%d/%m/%Y')}."
+            "message": msg
         }
 
 

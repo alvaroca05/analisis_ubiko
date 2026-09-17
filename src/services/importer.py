@@ -379,6 +379,33 @@ class UbikoImporter:
         except Exception:
             pass
 
+        # 1.1. Escanear automáticamente la carpeta Descargas del usuario por si descargó CSVs directamente desde UBIKO Web
+        try:
+            import shutil
+            import unicodedata
+            downloads_dir = Path.home() / "Downloads"
+            if downloads_dir.exists():
+                for dl_csv in downloads_dir.glob("*.csv"):
+                    dl_name = dl_csv.name
+                    norm_dl = unicodedata.normalize("NFKD", dl_name).encode("ascii", "ignore").decode().lower()
+                    # Comprobar si es un archivo de telemetría de UBIKO
+                    is_ubiko = (
+                        ("temporada" in norm_dl or "sesion" in norm_dl or "partido" in norm_dl or "summary" in norm_dl) and
+                        ("2026" in norm_dl or "-26" in norm_dl or "_26" in norm_dl or "9-2026" in norm_dl or "09-2026" in norm_dl)
+                    )
+                    if is_ubiko and "20260920" not in dl_name and "20-9-2026" not in dl_name:
+                        target_name = dl_name if dl_name.startswith("ubiko_") else f"ubiko_{dl_name}"
+                        target_path = SAMPLES_DIR / target_name
+                        if not target_path.exists() or target_path.stat().st_size != dl_csv.stat().st_size:
+                            shutil.copy2(dl_csv, target_path)
+                            safe_name = norm_dl.replace(" ", "_")
+                            try:
+                                print(f"[IMPORTER] CSV importado desde Descargas: {safe_name}")
+                            except Exception:
+                                pass
+        except Exception as e_dl:
+            print(f"[IMPORTER] Aviso escaneando Descargas: {e_dl}")
+
         csv_files = sorted(list(SAMPLES_DIR.glob("*.csv")))
         synced = []
 

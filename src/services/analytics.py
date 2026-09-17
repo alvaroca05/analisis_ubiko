@@ -361,9 +361,9 @@ def sync_and_update_player_match_peaks(db: Session, club_id: int = DEFAULT_CLUB_
             .first()
         )
 
-        # Buscar métricas de partidos para este jugador
+        # 1. Buscar métricas de partidos oficiales de liga para este jugador
         if match_ids:
-            p_metrics = (
+            p_match_metrics = (
                 db.query(PlayerMetric)
                 .filter(
                     PlayerMetric.player_id == p.id,
@@ -372,84 +372,103 @@ def sync_and_update_player_match_peaks(db: Session, club_id: int = DEFAULT_CLUB_
                 .all()
             )
         else:
-            p_metrics = []
+            p_match_metrics = []
 
-        if p_metrics and p.dorsal != 7:
-            # Encontrar el partido con mayor distancia total o esfuerzo
-            best_td_metric = max(p_metrics, key=lambda m: (m.total_distance or 0.0))
-            best_session = match_dict.get(best_td_metric.session_id)
+        # Partidos donde disputó minutos significativos (>= 5000m y >= 45 min)
+        full_matches = [
+            m for m in p_match_metrics
+            if (m.total_distance or 0) >= 5000 and (m.minutes_played or 0) >= 45
+        ]
 
-            max_td = max(float(m.total_distance or 0.0) for m in p_metrics)
-            max_hsr = max(float(m.hsr_distance or 0.0) for m in p_metrics)
-            max_sprint = max(float(m.sprint_distance or 0.0) for m in p_metrics)
-            max_hmld = max(float(m.hmld or 0.0) for m in p_metrics)
-            max_acc = max(int(m.accelerations_eff or 0) for m in p_metrics)
-            max_dec = max(int(m.decelerations_eff or 0) for m in p_metrics)
-            max_vmax = max(float(m.max_speed or 0.0) for m in p_metrics)
+        def _calc_demand_score(m):
+            return (
+                (m.total_distance or 0.0) * 0.35 +
+                (m.hsr_distance or 0.0) * 0.25 +
+                ((m.accelerations_eff or 0) + (m.decelerations_eff or 0)) * 15.0
+            )
 
-            sess_name = best_session.name if best_session else "Partido de Competición"
+        if full_matches:
+            # Caso 1: Ha jugado partido oficial con minutos significativos -> Seleccionar el partido donde más haya rendido
+            best_metric = max(full_matches, key=_calc_demand_score)
+            best_session = match_dict.get(best_metric.session_id)
+            sess_name = best_session.name if best_session else "Partido Oficial"
             sess_date = best_session.date if best_session else date.today()
 
-            if not current_peak:
-                new_peak = PlayerMatchPeak(
-                    club_id=club_id,
-                    player_id=p.id,
-                    peak_td=max_td,
-                    peak_hsr=max_hsr,
-                    peak_sprint=max_sprint,
-                    peak_hmld=max_hmld,
-                    peak_acc_eff=max_acc,
-                    peak_dec_eff=max_dec,
-                    peak_max_speed=max(max_vmax, p.max_speed_kmh or 32.0),
-                    peak_session_name=sess_name,
-                    peak_session_date=sess_date,
-                    last_updated=datetime.utcnow()
-                )
-                db.add(new_peak)
-                created_count += 1
-            else:
-                current_peak.peak_td = max_td
-                current_peak.peak_hsr = max_hsr
-                current_peak.peak_sprint = max_sprint
-                current_peak.peak_hmld = max_hmld
-                current_peak.peak_acc_eff = max_acc
-                current_peak.peak_dec_eff = max_dec
-                current_peak.peak_max_speed = max(max_vmax, p.max_speed_kmh or 32.0)
-                current_peak.peak_session_name = sess_name
-                current_peak.peak_session_date = sess_date
-                current_peak.last_updated = datetime.utcnow()
-                updated_count += 1
+            max_td = float(best_metric.total_distance or 0.0)
+            max_hsr = float(best_metric.hsr_distance or 0.0)
+            max_sprint = float(best_metric.sprint_distance or 0.0)
+            max_hmld = float(best_metric.hmld or 0.0)
+            max_acc = int(best_metric.accelerations_eff or 0)
+            max_dec = int(best_metric.decelerations_eff or 0)
+            max_vmax = max(float(best_metric.max_speed or 0.0), p.max_speed_kmh or 30.0)
         else:
-            # Jugador sin partidos oficiales disputados esta temporada (ej. Bugui #7)
-            if not current_peak:
-                new_peak = PlayerMatchPeak(
-                    club_id=club_id,
-                    player_id=p.id,
-                    peak_td=0.0,
-                    peak_hsr=0.0,
-                    peak_sprint=0.0,
-                    peak_hmld=0.0,
-                    peak_acc_eff=0,
-                    peak_dec_eff=0,
-                    peak_max_speed=p.max_speed_kmh or 0.0,
-                    peak_session_name="Sin minutos disputados",
-                    peak_session_date=None,
-                    last_updated=datetime.utcnow()
+            # Caso 2: No ha jugado o ha jugado pocos minutos -> Usar el entrenamiento con mayor exigencia física
+            train_metrics = (
+                db.query(PlayerMetric, TrainingSession)
+                .join(TrainingSession, PlayerMetric.session_id == TrainingSession.id)
+                .filter(
+                    PlayerMetric.player_id == p.id,
+                    TrainingSession.club_id == club_id,
+                    TrainingSession.session_type != "Partido",
+                    TrainingSession.microcycle_day != "MD"
                 )
-                db.add(new_peak)
-                created_count += 1
+                .all()
+            )
+
+            if train_metrics:
+                best_tm, best_ts = max(train_metrics, key=lambda pair: _calc_demand_score(pair[0]))
+                sess_name = f"Entreno {best_ts.microcycle_day} ({best_ts.date.strftime('%d/%m/%Y')})"
+                sess_date = best_ts.date
+
+                max_td = float(best_tm.total_distance or 0.0)
+                max_hsr = float(best_tm.hsr_distance or 0.0)
+                max_sprint = float(best_tm.sprint_distance or 0.0)
+                max_hmld = float(best_tm.hmld or 0.0)
+                max_acc = int(best_tm.accelerations_eff or 0)
+                max_dec = int(best_tm.decelerations_eff or 0)
+                max_vmax = max(float(best_tm.max_speed or 0.0), p.max_speed_kmh or 30.0)
             else:
-                current_peak.peak_td = 0.0
-                current_peak.peak_hsr = 0.0
-                current_peak.peak_sprint = 0.0
-                current_peak.peak_hmld = 0.0
-                current_peak.peak_acc_eff = 0
-                current_peak.peak_dec_eff = 0
-                current_peak.peak_max_speed = p.max_speed_kmh or 0.0
-                current_peak.peak_session_name = "Sin minutos disputados"
-                current_peak.peak_session_date = None
-                current_peak.last_updated = datetime.utcnow()
-                updated_count += 1
+                # Caso 3: Jugador sin telemetría registrada -> Perfil posicional estándar
+                pos = (p.position or "Mediocentro").upper()
+                sess_name = "Perfil Posicional Estándar"
+                sess_date = date.today()
+                max_td = 10200.0 if "CENTRAL" not in pos else 9500.0
+                max_hsr = 400.0
+                max_sprint = 120.0
+                max_hmld = 1700.0
+                max_acc = 50
+                max_dec = 50
+                max_vmax = p.max_speed_kmh or 31.0
+
+        if not current_peak:
+            new_peak = PlayerMatchPeak(
+                club_id=club_id,
+                player_id=p.id,
+                peak_td=max_td,
+                peak_hsr=max_hsr,
+                peak_sprint=max_sprint,
+                peak_hmld=max_hmld,
+                peak_acc_eff=max_acc,
+                peak_dec_eff=max_dec,
+                peak_max_speed=max_vmax,
+                peak_session_name=sess_name,
+                peak_session_date=sess_date,
+                last_updated=datetime.utcnow()
+            )
+            db.add(new_peak)
+            created_count += 1
+        else:
+            current_peak.peak_td = max_td
+            current_peak.peak_hsr = max_hsr
+            current_peak.peak_sprint = max_sprint
+            current_peak.peak_hmld = max_hmld
+            current_peak.peak_acc_eff = max_acc
+            current_peak.peak_dec_eff = max_dec
+            current_peak.peak_max_speed = max_vmax
+            current_peak.peak_session_name = sess_name
+            current_peak.peak_session_date = sess_date
+            current_peak.last_updated = datetime.utcnow()
+            updated_count += 1
 
     db.commit()
     return {"created": created_count, "updated": updated_count}
@@ -1164,13 +1183,13 @@ def get_all_reference_matches(db: Session, club_id: int = DEFAULT_CLUB_ID) -> Li
 
     res: List[Dict[str, Any]] = []
 
-    # Opción 0: Techo individual dinámico consolidado
+    # Opción 0: Máxima Exigencia Individual (Mejor Partido o Entrenamiento de cada jugador)
     res.append({
         "session_id": None,
         "key": "PEAK_CONSOLIDATED",
         "order": 0,
-        "name": "Partido Récord Consolidado (100% Techo Individual)",
-        "label": "🏆 PARTIDO RÉCORD CONSOLIDADO (100% Individual por Jugador)",
+        "name": "Máxima Exigencia Individual (Mejor Partido o Entrenamiento)",
+        "label": "⭐ Máxima Exigencia Individual (Mejor Partido o Entrenamiento de cada jugador)",
         "date": date.today(),
         "num_players": db.query(Player).filter(Player.club_id == club_id, Player.active == True).count(),
         "total_distance_km": 0.0
@@ -1347,8 +1366,7 @@ def get_match_reference_table_data(
                 sprint_m = round(raw_sp, 1)
                 sprints_cnt = max(1, int(round(raw_sp / 18.0))) if raw_sp > 0 else 0
 
-            # Jugador activo con partidos disputados (Bugui dorsal 7 no ha disputado minutos)
-            has_played = (td_m > 0.0 and p.dorsal != 7)
+            has_played = td_m > 0.0
             mins = 90.0 if has_played else 0.0
 
             perf_score = (
@@ -1461,7 +1479,7 @@ def get_match_reference_table_data(
     for role in target_roles:
         cands = [
             p for p in players_data
-            if p["dorsal"] != 7 and p["minutes"] > 0 and (
+            if p["minutes"] > 0 and (
                 p["position"] == role or
                 (role == "LATERAL" and p["player_name"].upper() in ["MANU VIANA", "VIANA", "RAFA", "PAJUELO", "TALARN", "A. TALARN", "CONNOR"]) or
                 (role == "EXTREMO" and p["player_name"].upper() in ["CELLOU", "ALAN", "RAFITA"]) or
@@ -1602,7 +1620,7 @@ def calculate_excel_pre_session_prescription(
     tot_min_dec = 0
 
     for p in players_sorted:
-        if p["dorsal"] == 7 or p.get("distance_km", 0.0) == 0.0:
+        if p.get("distance_km", 0.0) == 0.0:
             continue
 
         min_dist_km = round(p["distance_km"] * (pct_td / 100.0), 2)
