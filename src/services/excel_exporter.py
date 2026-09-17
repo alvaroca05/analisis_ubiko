@@ -29,7 +29,9 @@ def export_dataframe_to_formatted_excel(
     """
     wb = openpyxl.Workbook()
     ws = wb.active
-    ws.title = sheet_name[:31]
+    import re
+    clean_title = re.sub(r'[\\/*?:\[\]]', '_', str(sheet_name)).strip()[:31]
+    ws.title = clean_title if clean_title else "Hoja1"
     ws.views.sheetView[0].showGridLines = True
 
     if freeze_header:

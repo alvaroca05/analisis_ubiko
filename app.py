@@ -1049,34 +1049,25 @@ elif menu == "🏟️ Referencia Partidos (Excel P.F.)":
     default_top_id = ref_data_init.get("top_player", {}).get("player_id") if ref_data_init.get("top_player") else None
 
     cand_ids = [c["player_id"] for c in candidates]
-    top_state_key = f"active_top_player_{selected_match_id}"
-    if top_state_key not in st.session_state or st.session_state[top_state_key] not in cand_ids:
-        st.session_state[top_state_key] = default_top_id
+    top_key = f"sel_top_{selected_match_id}"
+    if top_key not in st.session_state or st.session_state[top_key] not in cand_ids:
+        st.session_state[top_key] = default_top_id
 
-    curr_top_idx = cand_ids.index(st.session_state[top_state_key]) if st.session_state[top_state_key] in cand_ids else 0
-
-    col_top_sel, col_top_info = st.columns([1.7, 1.3])
+    col_top_sel, col_top_info = st.columns([1.8, 1.2])
     with col_top_sel:
         chosen_top_id = st.selectbox(
             "⭐ Jugador TOP de Referencia (Minutos + Distancia + Criterio Cualitativo P.F.):",
             options=cand_ids,
-            index=curr_top_idx,
+            key=top_key,
             format_func=lambda pid: next((c["label"] for c in candidates if c["player_id"] == pid), str(pid)),
-            help="El sistema sugiere automáticamente al jugador con mayor volumen entre los titulares (minutos y distancias). El preparador físico puede modificarlo a ojo cualitativo según la posición.",
-            key=f"sel_top_{selected_match_id}"
+            help="El sistema sugiere automáticamente al jugador con mayor volumen entre los titulares (minutos y distancias). El preparador físico puede modificarlo con un solo clic desplegando esta lista para elegir a cualquier otro futbolista."
         )
-        if chosen_top_id != st.session_state[top_state_key]:
-            st.session_state[top_state_key] = chosen_top_id
-            st.rerun()
 
     with col_top_info:
         st.caption("ℹ️ **Metodología Oficial del Preparador Físico**")
         st.caption("Filtro por **minutos** (titulares >= 65'), clasificación por **distancia total** y **posición**, con ajuste libre **a ojo cualitativo**.")
 
-    if chosen_top_id != default_top_id:
-        ref_data = get_cached_match_reference_table_data(selected_match_id, top_player_id=chosen_top_id)
-    else:
-        ref_data = ref_data_init
+    ref_data = get_cached_match_reference_table_data(selected_match_id, top_player_id=chosen_top_id)
 
     df_disp = ref_data.get("df_display", pd.DataFrame())
     top_p = ref_data.get("top_player")
@@ -1191,6 +1182,9 @@ elif menu == "🏟️ Referencia Partidos (Excel P.F.)":
         )
 
         col_dl1, col_dl2, col_dl3, col_dl4 = st.columns([1.0, 1.3, 1.2, 0.7])
+        import re
+        safe_fname = re.sub(r'[^\w\-_\.]', '_', selected_match_label.replace("🏟️", "").replace("🏆", "").strip())[:28]
+
         with col_dl2:
             try:
                 from src.services.pdf_generator import generate_match_reference_pdf
@@ -1198,7 +1192,6 @@ elif menu == "🏟️ Referencia Partidos (Excel P.F.)":
                     match_title=selected_match_label,
                     df_rows=df_view
                 )
-                safe_fname = selected_match_label.replace("🏟️", "").replace("🏆", "").strip().replace(" ", "_")[:28]
                 st.download_button(
                     label="📄 Descargar PDF Oficial (P.F.)",
                     data=pdf_data,
@@ -1214,10 +1207,9 @@ elif menu == "🏟️ Referencia Partidos (Excel P.F.)":
         with col_dl3:
             try:
                 from src.services.excel_exporter import export_dataframe_to_formatted_excel
-                safe_fname = selected_match_label.replace("🏟️", "").replace("🏆", "").strip().replace(" ", "_")[:28]
                 excel_ref = export_dataframe_to_formatted_excel(
                     df=df_view,
-                    sheet_name=f"Referencia {safe_fname[:20]}",
+                    sheet_name=f"Referencia_{safe_fname[:18]}",
                     header_color="1E3A8A"
                 )
                 st.download_button(
