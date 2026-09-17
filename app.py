@@ -1377,6 +1377,15 @@ elif menu == "📋 Planificación Pre-Sesión":
                 st.cache_data.clear()
                 st.toast(f"¡Prescripción para {sel_day} fijada en base de datos!", icon="💾")
                 st.success(f"✅ Prescripción para **{sel_day}** actualizada correctamente en la base de datos (TargetLoad).")
+                st.info(
+                    "📍 **¿Dónde verás la comparación con la realidad tras cargar la sesión de Ubiko?**\n\n"
+                    "1. Dirígete a la pestaña **📊 Panel de Sesión & Semáforo** (la primera en el menú lateral).\n"
+                    "2. En el desplegable de la barra lateral **'Sesión a evaluar'**, selecciona la sesión importada.\n"
+                    "3. Verás de forma automática:\n"
+                    "   - **Clasificación en 3 Estados** (🟢 Listo/Óptimo, 🔴 Déficit a compensar, 🟠 Sobre-estímulo).\n"
+                    "   - **Tabla Semáforo Individual**: % de cumplimiento de DT, HSR y Aceleraciones.\n"
+                    "   - **📋 Ver Comparativa Completa Real vs. Mínimo Prescrito (Metodología Excel P.F.)**: Comparativa variable a variable (Distancia Real vs Meta, HSR Real vs Meta, Sprint Real vs Meta, etc.)."
+                )
 
     if not df_presc_disp.empty:
         col_pf1, col_pf2 = st.columns([1, 1])
