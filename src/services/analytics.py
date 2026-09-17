@@ -48,6 +48,78 @@ def get_acwr_status(acwr: float) -> Tuple[str, str, str]:
         return "Riesgo Alto Sobrecarga (>1.50)", "#EF4444", "Rojo"
 
 
+LOAD_LEVEL_PRESETS: Dict[int, Dict[str, Any]] = {
+    50: {
+        "level": 50,
+        "name": "Nivel 50%",
+        "title": "Carga Baja / Regenerativa / Compensatorio",
+        "badge": "🟢 Carga Baja (50%)",
+        "factor": 0.50,
+        "description": "50% de intensidad objetivo sobre el partido de máxima exigencia. Adecuado para MD+1, sesiones regenerativas, post-partido o compensatorias de suplentes.",
+        "defaults_by_day": {
+            "MD-4": {"pct_td": 40.0, "pct_hsr": 25.0, "pct_sprint": 20.0, "pct_eff": 50.0},
+            "MD-3": {"pct_td": 50.0, "pct_hsr": 35.0, "pct_sprint": 30.0, "pct_eff": 40.0},
+            "MD-2": {"pct_td": 35.0, "pct_hsr": 50.0, "pct_sprint": 45.0, "pct_eff": 35.0},
+            "MD-1": {"pct_td": 35.0, "pct_hsr": 20.0, "pct_sprint": 15.0, "pct_eff": 25.0},
+            "MD+1": {"pct_td": 45.0, "pct_hsr": 20.0, "pct_sprint": 15.0, "pct_eff": 30.0},
+            "MD":   {"pct_td": 50.0, "pct_hsr": 50.0, "pct_sprint": 50.0, "pct_eff": 50.0},
+        }
+    },
+    70: {
+        "level": 70,
+        "name": "Nivel 70%",
+        "title": "Carga Media",
+        "badge": "🟡 Carga Media (70%)",
+        "factor": 0.70,
+        "description": "70% de intensidad objetivo sobre el partido de máxima exigencia. Estimulación equilibrada sin acumular fatiga residual previa al fin de semana.",
+        "defaults_by_day": {
+            "MD-4": {"pct_td": 50.0, "pct_hsr": 35.0, "pct_sprint": 30.0, "pct_eff": 70.0},
+            "MD-3": {"pct_td": 70.0, "pct_hsr": 55.0, "pct_sprint": 45.0, "pct_eff": 55.0},
+            "MD-2": {"pct_td": 45.0, "pct_hsr": 70.0, "pct_sprint": 65.0, "pct_eff": 45.0},
+            "MD-1": {"pct_td": 45.0, "pct_hsr": 25.0, "pct_sprint": 20.0, "pct_eff": 30.0},
+            "MD+1": {"pct_td": 50.0, "pct_hsr": 25.0, "pct_sprint": 20.0, "pct_eff": 35.0},
+            "MD":   {"pct_td": 70.0, "pct_hsr": 70.0, "pct_sprint": 70.0, "pct_eff": 70.0},
+        }
+    },
+    80: {
+        "level": 80,
+        "name": "Nivel 80%",
+        "title": "Carga Alta / Máxima Estimulación Semanal",
+        "badge": "🔴 Carga Alta (80%)",
+        "factor": 0.80,
+        "description": "80% de intensidad objetivo sobre el partido de máxima exigencia. Máxima sobrecarga adaptativa del microciclo (MD-4 en tensión, MD-3 en volumen o MD-2 en velocidad).",
+        "defaults_by_day": {
+            "MD-4": {"pct_td": 60.0, "pct_hsr": 45.0, "pct_sprint": 40.0, "pct_eff": 80.0},
+            "MD-3": {"pct_td": 80.0, "pct_hsr": 70.0, "pct_sprint": 55.0, "pct_eff": 65.0},
+            "MD-2": {"pct_td": 55.0, "pct_hsr": 80.0, "pct_sprint": 75.0, "pct_eff": 55.0},
+            "MD-1": {"pct_td": 50.0, "pct_hsr": 30.0, "pct_sprint": 25.0, "pct_eff": 35.0},
+            "MD+1": {"pct_td": 55.0, "pct_hsr": 30.0, "pct_sprint": 25.0, "pct_eff": 40.0},
+            "MD":   {"pct_td": 80.0, "pct_hsr": 80.0, "pct_sprint": 80.0, "pct_eff": 80.0},
+        }
+    }
+}
+
+
+def get_load_level_preset(level: int, microcycle_day: str = "MD-3") -> Dict[str, Any]:
+    """
+    Retorna los porcentajes de prescripción ({pct_td, pct_hsr, pct_sprint, pct_eff})
+    para el nivel seleccionado (50, 70, 80) y el día de microciclo correspondiente.
+    """
+    lvl_cfg = LOAD_LEVEL_PRESETS.get(level, LOAD_LEVEL_PRESETS[70])
+    day_key = microcycle_day.upper().strip() if microcycle_day else "MD-3"
+    day_defaults = lvl_cfg["defaults_by_day"].get(day_key, lvl_cfg["defaults_by_day"].get("MD-3", {}))
+    return {
+        "pct_td": float(day_defaults.get("pct_td", float(level))),
+        "pct_hsr": float(day_defaults.get("pct_hsr", float(level))),
+        "pct_sprint": float(day_defaults.get("pct_sprint", float(level))),
+        "pct_eff": float(day_defaults.get("pct_eff", float(level))),
+        "factor": lvl_cfg["factor"],
+        "level": level,
+        "title": lvl_cfg["title"],
+        "badge": lvl_cfg["badge"]
+    }
+
+
 def get_stimulus_compliance_status(pct: float) -> Tuple[str, str, str]:
     """
     Evalúa el cumplimiento de la carga prescrita según los requerimientos del preparador físico:
@@ -87,7 +159,7 @@ def evaluate_multivariable_deficit(
     day = microcycle_day.upper().strip() if microcycle_day else "MD-3"
 
     if day == "MD-4":
-        # Métrica crítica del día de tensión: AC.E (aceleraciones y desaceleraciones > 3 m/s²)
+        # Métrica crítica del día de tensión: AC.E (aceleraciones y desaceleraciones > 3 m/s²) y HMLD
         if comp_pct_eff < 80.0:
             return (
                 f"🔴 Déficit neuromuscular (AC.E: {comp_pct_eff:.0f}%)",
@@ -103,22 +175,17 @@ def evaluate_multivariable_deficit(
                 "Naranja"
             )
         else:
-            if comp_pct_td < 75.0:
-                return (
-                    f"🟡 AC.E Óptimo ({comp_pct_eff:.0f}%) | Déficit DT ({comp_pct_td:.0f}%)",
-                    "Déficit secundario DT",
-                    "#FBBF24",
-                    "Amarillo"
-                )
+            # En MD-4, la DT o HSR reducida es fisiológicamente normal en espacio reducido; NO es déficit
+            dt_note = f" (DT reducida {comp_pct_td:.0f}% normal)" if comp_pct_td < 75.0 else ""
             return (
-                f"🟢 Estímulo Óptimo Cumplido (AC.E: {comp_pct_eff:.0f}%)",
+                f"🟢 Estímulo Neuromuscular Óptimo (AC.E: {comp_pct_eff:.0f}%{dt_note})",
                 "Cumplido",
                 "#10B981",
                 "Verde"
             )
 
     elif day == "MD-3":
-        # Métrica crítica del día de resistencia: DT (volumen total)
+        # Métrica crítica del día de resistencia: DT (volumen total) y capacidad aeróbica
         if comp_pct_td < 80.0:
             return (
                 f"🔴 Déficit de volumen (DT: {comp_pct_td:.0f}%)",
@@ -134,15 +201,8 @@ def evaluate_multivariable_deficit(
                 "Naranja"
             )
         else:
-            if comp_pct_hsr < 70.0:
-                return (
-                    f"🟡 Volumen Óptimo ({comp_pct_td:.0f}%) | Déficit HSR ({comp_pct_hsr:.0f}%)",
-                    "Déficit secundario HSR",
-                    "#FBBF24",
-                    "Amarillo"
-                )
             return (
-                f"🟢 Estímulo Óptimo Cumplido (DT: {comp_pct_td:.0f}%)",
+                f"🟢 Estímulo de Volumen Óptimo (DT: {comp_pct_td:.0f}%)",
                 "Cumplido",
                 "#10B981",
                 "Verde"
@@ -1742,5 +1802,237 @@ def get_post_session_multivariable_table(
         })
 
     return pd.DataFrame(comparison_rows)
+
+
+def classify_session_player_states(
+    db: Session,
+    session_id: int,
+    reference_session_id: Optional[int] = None,
+    club_id: int = DEFAULT_CLUB_ID
+) -> Dict[str, Any]:
+    """
+    Clasifica a los jugadores de la sesión en los 3 estados operativos definidos por el preparador físico:
+    - ESTADO 1 (ROJO | DÉFICIT DE ESTÍMULO): <80% en la métrica diana del día.
+      Muestra qué faltó cuantitativamente (ej: '#ACC EXPL: 48 de 72 requeridas (-33%)').
+    - ESTADO 2 (VERDE | EN RANGO ÓPTIMO): 80% - 115% de la métrica diana.
+    - ESTADO 3 (AMARILLO/NARANJA-ROJO | SOBRE-ESTÍMULO / RIESGO): >115% de la métrica prescrita (alerta fatiga).
+
+    Aplica rigurosamente la jerarquía condicional de métricas:
+    * MD-4: Métrica crítica = #ACC EXPL (#ACC/#DCC EXPL).
+      El bajo volumen de carrera (DT o HSR) es fisiológicamente normal y deseable en espacios reducidos;
+      no computa déficit.
+    * MD-3: Métrica crítica = Distancia Total (DT).
+    * MD-2: Métrica crítica = High Speed Running (HSR >21 km/h) y picos de velocidad.
+    * MD-1 / MD+1: Métrica crítica = Distancia Total controlada (DT).
+    """
+    sess = db.query(TrainingSession).filter(
+        TrainingSession.id == session_id,
+        TrainingSession.club_id == club_id
+    ).first()
+
+    if not sess:
+        return {
+            "microcycle_day": "MD",
+            "critical_metric": "total_distance",
+            "critical_label": "Distancia Total",
+            "secondary_note": "",
+            "counts": {"deficit": 0, "optimal": 0, "excess": 0, "total": 0},
+            "groups": {"deficit": [], "optimal": [], "excess": []},
+            "players_summary": []
+        }
+
+    day = (sess.microcycle_day or "MD-3").upper().strip()
+    day_cfg = MICROCYCLE_MATCH_TARGETS.get(day, MICROCYCLE_MATCH_TARGETS.get("MD-3", {}))
+    pct_td = float(day_cfg.get("pct_td", 0.80) * 100.0)
+    pct_hsr = float(day_cfg.get("pct_hsr", 0.65) * 100.0)
+    pct_sprint = float(day_cfg.get("pct_sprint", 0.50) * 100.0)
+    pct_eff = float(day_cfg.get("pct_eff", 0.65) * 100.0)
+
+    # 1. Obtener prescripción meta para el día
+    presc = calculate_excel_pre_session_prescription(
+        db, reference_session_id, day, pct_td, pct_hsr, pct_sprint, pct_eff, club_id=club_id
+    )
+    df_presc = presc.get("df_display", pd.DataFrame())
+
+    target_by_player = {}
+    if not df_presc.empty:
+        for _, r in df_presc[df_presc["_row_type"] == "player"].iterrows():
+            p_id = r["_player_id"]
+            try:
+                target_by_player[p_id] = {
+                    "min_td_km": float(r["DISTANCIA TOTAL (km)"]),
+                    "min_hsr": float(r["HSR (m)"]),
+                    "min_sprint_m": float(r["METROS EN SPRINT"]),
+                    "min_sprints": int(r["#SPRINTS"]),
+                    "min_acc": int(r["#ACC EXPL"]),
+                    "min_dec": int(r["#DCC EXPL"])
+                }
+            except Exception:
+                pass
+
+    # 2. Obtener métricas reales registradas
+    real_metrics = (
+        db.query(
+            Player.id.label("player_id"),
+            Player.dorsal,
+            Player.name.label("player_name"),
+            Player.position,
+            PlayerMetric.total_distance,
+            PlayerMetric.hsr_distance,
+            PlayerMetric.sprint_distance,
+            PlayerMetric.accelerations_eff,
+            PlayerMetric.decelerations_eff,
+            PlayerMetric.max_speed,
+            PlayerMetric.minutes_played
+        )
+        .join(PlayerMetric, Player.id == PlayerMetric.player_id)
+        .filter(PlayerMetric.session_id == session_id, Player.club_id == club_id)
+        .order_by(Player.dorsal.asc())
+        .all()
+    )
+
+    # Definir métrica crítica y notas según el día
+    if day == "MD-4":
+        critical_metric = "accelerations_eff"
+        critical_label = "#ACC EXPL"
+        secondary_note = "En MD-4 el bajo volumen de carrera (DT/HSR) es normal y deseable en espacios reducidos para evitar fatiga residual."
+    elif day == "MD-3":
+        critical_metric = "total_distance"
+        critical_label = "Distancia Total (DT)"
+        secondary_note = "En MD-3 el objetivo táctico-condicional prioritario es el volumen total (resistencia en espacios amplios)."
+    elif day == "MD-2":
+        critical_metric = "hsr_distance"
+        critical_label = "HSR (>21 km/h)"
+        secondary_note = "En MD-2 la prioridad metodológica son los picos de alta velocidad (>21 km/h) y aceleraciones explosivas."
+    elif day in ["MD-1", "MD+1"]:
+        critical_metric = "total_distance"
+        critical_label = "Distancia Total (DT)"
+        secondary_note = f"Sesión de {('activación pre-partido' if day == 'MD-1' else 'compensación/recuperación')} con volumen controlado."
+    else:
+        critical_metric = "total_distance"
+        critical_label = "Distancia Total (DT)"
+        secondary_note = "Competición oficial / Máxima exigencia."
+
+    deficit_group = []
+    optimal_group = []
+    excess_group = []
+    all_summary = []
+
+    for m in real_metrics:
+        p_id = m.player_id
+        tgt = target_by_player.get(p_id)
+        if not tgt:
+            continue
+
+        real_td_km = round((m.total_distance or 0.0) / 1000.0, 2)
+        real_hsr = round(m.hsr_distance or 0.0, 1)
+        raw_sp = float(m.sprint_distance or 0.0)
+        real_sprint_m = round(raw_sp if raw_sp > 35.0 else raw_sp * 18.0, 1)
+        real_acc = int(m.accelerations_eff or 0)
+        real_dec = int(m.decelerations_eff or 0)
+        minutes = float(m.minutes_played or 0.0)
+
+        # Si el jugador no entrenó o tiene 0 minutos y 0 distancia, omitir
+        if minutes == 0 and real_td_km == 0:
+            continue
+
+        # Evaluación según la métrica crítica del día
+        if day == "MD-4":
+            real_val = real_acc
+            tgt_val = tgt["min_acc"]
+            comp_pct = (real_val / tgt_val * 100.0) if tgt_val > 0 else 100.0
+            diff_abs = real_val - tgt_val
+            diff_pct = comp_pct - 100.0
+            unit = "req."
+            detail_str = f"#ACC EXPL: {real_val} de {tgt_val} requeridas ({diff_pct:+.0f}%)"
+            secondary_str = f"DT: {real_td_km:.2f} km (normal en MD-4) | DCC: {real_dec}/{tgt['min_dec']}"
+        elif day == "MD-3":
+            real_val = real_td_km
+            tgt_val = tgt["min_td_km"]
+            comp_pct = (real_val / tgt_val * 100.0) if tgt_val > 0 else 100.0
+            diff_abs = round(real_val - tgt_val, 2)
+            diff_pct = comp_pct - 100.0
+            unit = "km"
+            detail_str = f"DT: {real_val:.2f} de {tgt_val:.2f} km requeridos ({diff_pct:+.0f}%)"
+            secondary_str = f"HSR: {real_hsr:.0f} m (meta {tgt['min_hsr']:.0f}) | #ACC: {real_acc}/{tgt['min_acc']}"
+        elif day == "MD-2":
+            real_val = real_hsr
+            tgt_val = tgt["min_hsr"]
+            comp_pct = (real_val / tgt_val * 100.0) if tgt_val > 0 else 100.0
+            diff_abs = round(real_val - tgt_val, 1)
+            diff_pct = comp_pct - 100.0
+            unit = "m"
+            detail_str = f"HSR: {real_val:.0f} de {tgt_val:.0f} m requeridos ({diff_pct:+.0f}%)"
+            secondary_str = f"Sprint: {real_sprint_m:.0f} m (meta {tgt['min_sprint_m']:.0f}) | Vmax: {m.max_speed:.1f} km/h"
+        else:
+            real_val = real_td_km
+            tgt_val = tgt["min_td_km"]
+            comp_pct = (real_val / tgt_val * 100.0) if tgt_val > 0 else 100.0
+            diff_abs = round(real_val - tgt_val, 2)
+            diff_pct = comp_pct - 100.0
+            unit = "km"
+            detail_str = f"DT: {real_val:.2f} de {tgt_val:.2f} km ({diff_pct:+.0f}%)"
+            secondary_str = f"HSR: {real_hsr:.0f} m | ACC: {real_acc}"
+
+        item = {
+            "player_id": p_id,
+            "dorsal": m.dorsal,
+            "name": m.player_name,
+            "position": m.position,
+            "real_val": real_val,
+            "target_val": tgt_val,
+            "comp_pct": round(comp_pct, 1),
+            "diff_abs": diff_abs,
+            "diff_pct": round(diff_pct, 1),
+            "detail_str": detail_str,
+            "secondary_str": secondary_str,
+            "minutes": minutes,
+            "unit": unit
+        }
+
+        # Clasificación en 3 Estados:
+        # ESTADO 1: <80% (Déficit de estímulo)
+        # ESTADO 2: 80% - 115% (En rango óptimo)
+        # ESTADO 3: >115% (Sobre-estímulo / Riesgo fatiga)
+        if comp_pct < 80.0:
+            item["state"] = 1
+            item["state_label"] = "Déficit de Estímulo (<80%)"
+            item["badge_color"] = "#EF4444"
+            item["badge_class"] = "deficit"
+            deficit_group.append(item)
+        elif comp_pct <= 115.0:
+            item["state"] = 2
+            item["state_label"] = "En Rango Óptimo (80-115%)"
+            item["badge_color"] = "#10B981"
+            item["badge_class"] = "optimal"
+            optimal_group.append(item)
+        else:
+            item["state"] = 3
+            item["state_label"] = "Sobre-estímulo / Riesgo (>115%)"
+            item["badge_color"] = "#F59E0B"
+            item["badge_class"] = "excess"
+            excess_group.append(item)
+
+        all_summary.append(item)
+
+    return {
+        "microcycle_day": day,
+        "critical_metric": critical_metric,
+        "critical_label": critical_label,
+        "secondary_note": secondary_note,
+        "counts": {
+            "deficit": len(deficit_group),
+            "optimal": len(optimal_group),
+            "excess": len(excess_group),
+            "total": len(all_summary)
+        },
+        "groups": {
+            "deficit": deficit_group,
+            "optimal": optimal_group,
+            "excess": excess_group
+        },
+        "players_summary": all_summary
+    }
+
 
 

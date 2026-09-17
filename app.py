@@ -53,7 +53,10 @@ try:
         get_all_reference_matches,
         get_match_reference_table_data,
         calculate_excel_pre_session_prescription,
-        get_post_session_multivariable_table
+        get_post_session_multivariable_table,
+        LOAD_LEVEL_PRESETS,
+        get_load_level_preset,
+        classify_session_player_states
     )
     from src.services.importer import UbikoImporter
     from src.services.report_generator import generate_tactical_report
@@ -376,6 +379,14 @@ def get_cached_post_session_multivariable_table(session_id: int, reference_sessi
         return get_post_session_multivariable_table(db, session_id, reference_session_id)
 
 
+@st.cache_data(ttl=600)
+def get_cached_classified_session_states(session_id: int, reference_session_id: Optional[int] = None):
+    """Cachea la clasificación de la plantilla en los 3 estados operativos (Déficit, Óptimo, Sobre-estímulo)."""
+    with get_db() as db:
+        return classify_session_player_states(db, session_id, reference_session_id)
+
+
+
 
 # ==========================================
 # BARRA LATERAL (SIDEBAR)
@@ -607,19 +618,115 @@ if menu == "📊 Panel de Sesión & Semáforo":
     st.write("")
 
     # ========================================================
-    # 2. SEMÁFORO DE CUMPLIMIENTO INDIVIDUAL DEL DÍA (PARTIDO DE MÁXIMA EXIGENCIA)
+    # 2. CLASIFICACIÓN VISUAL EN 3 ESTADOS (CUERPO TÉCNICO) & SEMÁFORO DE CUMPLIMIENTO
     # ========================================================
+    classified_states = get_cached_classified_session_states(
+        selected_session_id,
+        st.session_state.get("active_ref_session_id")
+    )
+    c_counts = classified_states.get("counts", {})
+    c_groups = classified_states.get("groups", {})
+    crit_lbl = classified_states.get("critical_label", "Métrica Diana")
+    crit_note = classified_states.get("secondary_note", "")
+
+    st.markdown(f"### 🎯 Clasificación Operativa en 3 Estados ({sess.microcycle_day} | Metodología P.F.)")
+    if crit_note:
+        st.info(f"📌 **Criterio Metodológico ({sess.microcycle_day}):** Métrica crítica diana = **{crit_lbl}**. {crit_note}")
+
+    # Panel visual de 3 Columnas para el Cuerpo Técnico
+    st_col1, st_col2, st_col3 = st.columns(3)
+
+    with st_col1:
+        st.markdown(f"""
+        <div style="background: rgba(239, 68, 68, 0.08); border-top: 4px solid #EF4444; border-radius: 10px; padding: 14px; border-left: 1px solid rgba(239, 68, 68, 0.2); border-right: 1px solid rgba(239, 68, 68, 0.2); border-bottom: 1px solid rgba(239, 68, 68, 0.2); margin-bottom: 10px;">
+            <div style="color: #FCA5A5; font-size: 0.82rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;">
+                🔴 ESTADO 1: DÉFICIT DE ESTÍMULO (&lt;80%)
+            </div>
+            <div style="color: #EF4444; font-size: 1.8rem; font-weight: 800; margin: 4px 0;">
+                {c_counts.get('deficit', 0)} <span style="font-size: 0.9rem; font-weight: 500; color: #94A3B8;">jugadores</span>
+            </div>
+            <div style="color: #94A3B8; font-size: 0.76rem;">
+                No alcanzaron el 80% en <b>{crit_lbl}</b>. Requieren compensación.
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        def_list = c_groups.get("deficit", [])
+        if def_list:
+            for p in def_list:
+                st.markdown(f"""
+                <div style="background: #1E293B; border-left: 3px solid #EF4444; border-radius: 6px; padding: 8px 10px; margin-top: 6px; font-size: 0.82rem;">
+                    <b>#{p['dorsal']} {p['name'].upper()}</b> <span style="color:#94A3B8; font-size:0.75rem;">({p['position']})</span><br>
+                    <span style="color: #F87171; font-weight: 600;">{p['detail_str']}</span><br>
+                    <span style="color: #64748B; font-size: 0.72rem;">{p['secondary_str']}</span>
+                </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.success("✨ Ningún jugador con déficit en la métrica rectora.")
+
+    with st_col2:
+        st.markdown(f"""
+        <div style="background: rgba(16, 185, 129, 0.08); border-top: 4px solid #10B981; border-radius: 10px; padding: 14px; border-left: 1px solid rgba(16, 185, 129, 0.2); border-right: 1px solid rgba(16, 185, 129, 0.2); border-bottom: 1px solid rgba(16, 185, 129, 0.2); margin-bottom: 10px;">
+            <div style="color: #6EE7B7; font-size: 0.82rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;">
+                🟢 ESTADO 2: EN RANGO ÓPTIMO (80% - 115%)
+            </div>
+            <div style="color: #10B981; font-size: 1.8rem; font-weight: 800; margin: 4px 0;">
+                {c_counts.get('optimal', 0)} <span style="font-size: 0.9rem; font-weight: 500; color: #94A3B8;">jugadores</span>
+            </div>
+            <div style="color: #94A3B8; font-size: 0.76rem;">
+                Asimilaron la dosis prevista en <b>{crit_lbl}</b> para la adaptación táctica.
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        opt_list = c_groups.get("optimal", [])
+        if opt_list:
+            for p in opt_list:
+                st.markdown(f"""
+                <div style="background: #1E293B; border-left: 3px solid #10B981; border-radius: 6px; padding: 8px 10px; margin-top: 6px; font-size: 0.82rem;">
+                    <b>#{p['dorsal']} {p['name'].upper()}</b> <span style="color:#94A3B8; font-size:0.75rem;">({p['position']})</span><br>
+                    <span style="color: #34D399; font-weight: 600;">{p['detail_str']}</span><br>
+                    <span style="color: #64748B; font-size: 0.72rem;">{p['secondary_str']}</span>
+                </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.caption("Ningún jugador en este rango.")
+
+    with st_col3:
+        st.markdown(f"""
+        <div style="background: rgba(245, 158, 11, 0.08); border-top: 4px solid #F59E0B; border-radius: 10px; padding: 14px; border-left: 1px solid rgba(245, 158, 11, 0.2); border-right: 1px solid rgba(245, 158, 11, 0.2); border-bottom: 1px solid rgba(245, 158, 11, 0.2); margin-bottom: 10px;">
+            <div style="color: #FCD34D; font-size: 0.82rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;">
+                🟠 ESTADO 3: SOBRE-ESTÍMULO / ALERTA (&gt;115%)
+            </div>
+            <div style="color: #F59E0B; font-size: 1.8rem; font-weight: 800; margin: 4px 0;">
+                {c_counts.get('excess', 0)} <span style="font-size: 0.9rem; font-weight: 500; color: #94A3B8;">jugadores</span>
+            </div>
+            <div style="color: #94A3B8; font-size: 0.76rem;">
+                Superaron el 115% de <b>{crit_lbl}</b>. Alerta al preparador de posible sobrecarga.
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        exc_list = c_groups.get("excess", [])
+        if exc_list:
+            for p in exc_list:
+                st.markdown(f"""
+                <div style="background: #1E293B; border-left: 3px solid #F59E0B; border-radius: 6px; padding: 8px 10px; margin-top: 6px; font-size: 0.82rem;">
+                    <b>#{p['dorsal']} {p['name'].upper()}</b> <span style="color:#94A3B8; font-size:0.75rem;">({p['position']})</span><br>
+                    <span style="color: #FBBF24; font-weight: 600;">{p['detail_str']} ⚠️</span><br>
+                    <span style="color: #64748B; font-size: 0.72rem;">{p['secondary_str']}</span>
+                </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.success("✨ Ningún jugador sobre-estimulado en exceso.")
+
+    st.write("")
+
+    # Tabla Desglosada Individual con Filtros
     df_indiv_compliance = get_cached_individual_compliance(selected_session_id)
     day_cfg = MICROCYCLE_MATCH_TARGETS.get(sess.microcycle_day, MICROCYCLE_MATCH_TARGETS.get("MD", {}))
     day_desc = day_cfg.get("description", MICROCYCLE_DESCRIPTIONS.get(sess.microcycle_day, "Trabajo específico del microciclo"))
     day_metric_label = day_cfg.get("key_label", day_cfg.get("primary_label", "Carga clave"))
     day_pct = day_cfg.get("target_pct", 100.0)
 
-    st.markdown(f"### 🎯 Semáforo de Cumplimiento Individual del Día ({sess.microcycle_day})")
-    st.markdown(
-        f"**Enfoque de prescripción:** {day_desc} | "
-        f"Métrica diana: **{day_metric_label}** (Prescrito: **{day_pct}%** del Partido de Máxima Exigencia individual)."
-    )
+    st.markdown(f"#### 📊 Detalle de Cumplimiento Individual de la Plantilla ({sess.microcycle_day})")
 
     if not df_indiv_compliance.empty:
         col_ci1, col_ci2 = st.columns([1, 1])
@@ -1142,45 +1249,107 @@ elif menu == "📋 Planificación Pre-Sesión":
         f"Métrica crítica diana: **{key_metric_label}**."
     )
 
-    st.markdown("#### ⚙️ Definición de Porcentajes de Carga (% sobre Partido de Referencia)")
-    col_sl1, col_sl2, col_sl3, col_sl4 = st.columns(4)
+    active_lvl = st.session_state.get(f"active_load_level_{sel_day}", 80 if sel_day in ["MD-4", "MD-3", "MD-2"] else 50)
+    cur_preset = get_load_level_preset(active_lvl, sel_day)
 
-    with col_sl1:
-        pct_td_input = st.slider(
-            "🏃 % Distancia Total (DT):",
-            min_value=20.0, max_value=120.0,
-            value=def_td, step=1.0,
-            key=f"pre_slider_td_{sel_day}",
-            help="Porcentaje de volumen de carrera respecto al partido."
-        )
-    with col_sl2:
-        pct_hsr_input = st.slider(
-            "⚡ % HSR (>21 km/h):",
-            min_value=10.0, max_value=120.0,
-            value=def_hsr, step=1.0,
-            key=f"pre_slider_hsr_{sel_day}",
-            help="Porcentaje de carrera de alta velocidad respecto al partido."
-        )
-    with col_sl3:
-        pct_sprint_input = st.slider(
-            "🚀 % Metros en Sprint:",
-            min_value=10.0, max_value=120.0,
-            value=def_sprint, step=1.0,
-            key=f"pre_slider_sprint_{sel_day}",
-            help="Porcentaje de sprint (>25.2 km/h) respecto al partido."
-        )
-    with col_sl4:
-        pct_eff_input = st.slider(
-            "💥 % #ACC / #DCC EXPL:",
-            min_value=10.0, max_value=120.0,
-            value=def_eff, step=1.0,
-            key=f"pre_slider_eff_{sel_day}",
-            help="Porcentaje de aceleraciones y desaceleraciones explosivas respecto al partido."
-        )
+    # Asegurar que los valores en session_state estén sincronizados con el preset
+    if f"pre_slider_td_{sel_day}" not in st.session_state:
+        st.session_state[f"pre_slider_td_{sel_day}"] = cur_preset["pct_td"]
+    if f"pre_slider_hsr_{sel_day}" not in st.session_state:
+        st.session_state[f"pre_slider_hsr_{sel_day}"] = cur_preset["pct_hsr"]
+    if f"pre_slider_sprint_{sel_day}" not in st.session_state:
+        st.session_state[f"pre_slider_sprint_{sel_day}"] = cur_preset["pct_sprint"]
+    if f"pre_slider_eff_{sel_day}" not in st.session_state:
+        st.session_state[f"pre_slider_eff_{sel_day}"] = cur_preset["pct_eff"]
+
+    st.markdown("#### ⚡ Selector Rápido de Nivel de Carga (Prescripción P.F.)")
+    st.caption("Fija la intensidad objetivo sobre el Partido de Máxima Exigencia (100%) para calcular al instante las metas de los 26 jugadores:")
+
+    col_btn_50, col_btn_70, col_btn_80 = st.columns(3)
+
+    with col_btn_50:
+        btn_type_50 = "primary" if active_lvl == 50 else "secondary"
+        if st.button("🟢 Nivel 50%\n(Carga baja / Regenerativo)", key=f"btn_lvl_50_{sel_day}", use_container_width=True, type=btn_type_50, help="50% de intensidad objetivo sobre el partido de referencia."):
+            st.session_state[f"active_load_level_{sel_day}"] = 50
+            p50 = get_load_level_preset(50, sel_day)
+            st.session_state[f"pre_slider_td_{sel_day}"] = p50["pct_td"]
+            st.session_state[f"pre_slider_hsr_{sel_day}"] = p50["pct_hsr"]
+            st.session_state[f"pre_slider_sprint_{sel_day}"] = p50["pct_sprint"]
+            st.session_state[f"pre_slider_eff_{sel_day}"] = p50["pct_eff"]
+            st.rerun()
+
+    with col_btn_70:
+        btn_type_70 = "primary" if active_lvl == 70 else "secondary"
+        if st.button("🟡 Nivel 70%\n(Carga media)", key=f"btn_lvl_70_{sel_day}", use_container_width=True, type=btn_type_70, help="70% de intensidad objetivo sobre el partido de referencia."):
+            st.session_state[f"active_load_level_{sel_day}"] = 70
+            p70 = get_load_level_preset(70, sel_day)
+            st.session_state[f"pre_slider_td_{sel_day}"] = p70["pct_td"]
+            st.session_state[f"pre_slider_hsr_{sel_day}"] = p70["pct_hsr"]
+            st.session_state[f"pre_slider_sprint_{sel_day}"] = p70["pct_sprint"]
+            st.session_state[f"pre_slider_eff_{sel_day}"] = p70["pct_eff"]
+            st.rerun()
+
+    with col_btn_80:
+        btn_type_80 = "primary" if active_lvl == 80 else "secondary"
+        if st.button("🔴 Nivel 80%\n(Carga alta / Máx. estímulo)", key=f"btn_lvl_80_{sel_day}", use_container_width=True, type=btn_type_80, help="80% de intensidad objetivo sobre el partido de referencia."):
+            st.session_state[f"active_load_level_{sel_day}"] = 80
+            p80 = get_load_level_preset(80, sel_day)
+            st.session_state[f"pre_slider_td_{sel_day}"] = p80["pct_td"]
+            st.session_state[f"pre_slider_hsr_{sel_day}"] = p80["pct_hsr"]
+            st.session_state[f"pre_slider_sprint_{sel_day}"] = p80["pct_sprint"]
+            st.session_state[f"pre_slider_eff_{sel_day}"] = p80["pct_eff"]
+            st.rerun()
+
+    crit_pct_display = cur_preset["pct_eff"] if sel_day == "MD-4" else (cur_preset["pct_td"] if sel_day == "MD-3" else cur_preset["pct_hsr"])
+    st.info(
+        f"🎯 **Nivel Activo ({sel_day}):** **{cur_preset['badge']}** — {cur_preset['title']} | "
+        f"Métrica diana ({key_metric_label}): **{crit_pct_display:.0f}%** del partido de máxima exigencia."
+    )
+
+    with st.expander("🛠️ Ajuste Fino Manual de Porcentajes por Métrica (Opcional)", expanded=False):
+        st.caption("Permite al cuerpo técnico calibrar individualmente los porcentajes de cada variable si se desea:")
+        col_sl1, col_sl2, col_sl3, col_sl4 = st.columns(4)
+        with col_sl1:
+            pct_td_input = st.slider(
+                "🏃 % Distancia Total (DT):",
+                min_value=20.0, max_value=120.0,
+                step=1.0,
+                key=f"pre_slider_td_{sel_day}",
+                help="Porcentaje de volumen de carrera respecto al partido."
+            )
+        with col_sl2:
+            pct_hsr_input = st.slider(
+                "⚡ % HSR (>21 km/h):",
+                min_value=10.0, max_value=120.0,
+                step=1.0,
+                key=f"pre_slider_hsr_{sel_day}",
+                help="Porcentaje de carrera de alta velocidad respecto al partido."
+            )
+        with col_sl3:
+            pct_sprint_input = st.slider(
+                "🚀 % Metros en Sprint:",
+                min_value=10.0, max_value=120.0,
+                step=1.0,
+                key=f"pre_slider_sprint_{sel_day}",
+                help="Porcentaje de sprint (>25.2 km/h) respecto al partido."
+            )
+        with col_sl4:
+            pct_eff_input = st.slider(
+                "💥 % #ACC / #DCC EXPL:",
+                min_value=10.0, max_value=120.0,
+                step=1.0,
+                key=f"pre_slider_eff_{sel_day}",
+                help="Porcentaje de aceleraciones y desaceleraciones explosivas respecto al partido."
+            )
+
+    pct_td_val = float(st.session_state.get(f"pre_slider_td_{sel_day}", cur_preset["pct_td"]))
+    pct_hsr_val = float(st.session_state.get(f"pre_slider_hsr_{sel_day}", cur_preset["pct_hsr"]))
+    pct_sprint_val = float(st.session_state.get(f"pre_slider_sprint_{sel_day}", cur_preset["pct_sprint"]))
+    pct_eff_val = float(st.session_state.get(f"pre_slider_eff_{sel_day}", cur_preset["pct_eff"]))
 
     # Calcular prescripción pre-sesión en la estructura exacta del Excel
     presc_result = get_cached_excel_pre_session_prescription(
-        sel_ref_id, sel_day, pct_td_input, pct_hsr_input, pct_sprint_input, pct_eff_input
+        sel_ref_id, sel_day, pct_td_val, pct_hsr_val, pct_sprint_val, pct_eff_val
     )
     df_presc_disp = presc_result.get("df_display", pd.DataFrame())
     team_tgts = presc_result.get("team_targets", {})
@@ -1193,7 +1362,7 @@ elif menu == "📋 Planificación Pre-Sesión":
         if st.button("💾 Guardar / Fijar Prescripción", type="primary", use_container_width=True, help="Guarda estos objetivos en la base de datos para la evaluación de las sesiones."):
             with get_db() as db:
                 success_save = save_pre_session_prescription(
-                    db, sel_day, pct_td_input, pct_hsr_input, pct_eff_input
+                    db, sel_day, pct_td_val, pct_hsr_val, pct_eff_val
                 )
             if success_save:
                 st.cache_data.clear()
@@ -1212,7 +1381,7 @@ elif menu == "📋 Planificación Pre-Sesión":
         with col_pf2:
             st.caption(
                 f"📌 Los valores mínimos resultan de multiplicar el rendimiento en **{sel_ref_label}** "
-                f"por los porcentajes fijados arriba ({pct_td_input:.0f}% DT, {pct_hsr_input:.0f}% HSR, {pct_sprint_input:.0f}% Sprint, {pct_eff_input:.0f}% AC.E)."
+                f"por los porcentajes fijados arriba ({pct_td_val:.0f}% DT, {pct_hsr_val:.0f}% HSR, {pct_sprint_val:.0f}% Sprint, {pct_eff_val:.0f}% AC.E)."
             )
 
         mask_presc = (
