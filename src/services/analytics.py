@@ -393,6 +393,8 @@ def sync_and_update_player_match_peaks(db: Session, club_id: int = DEFAULT_CLUB_
             best_session = match_dict.get(best_metric.session_id)
             sess_name = best_session.name if best_session else "Partido Oficial"
             sess_date = best_session.date if best_session else date.today()
+            sess_type = "Partido"
+            mins_val = float(best_metric.minutes_played or 90.0)
 
             max_td = float(best_metric.total_distance or 0.0)
             max_hsr = float(best_metric.hsr_distance or 0.0)
@@ -419,6 +421,8 @@ def sync_and_update_player_match_peaks(db: Session, club_id: int = DEFAULT_CLUB_
                 best_tm, best_ts = max(train_metrics, key=lambda pair: _calc_demand_score(pair[0]))
                 sess_name = f"Entreno {best_ts.microcycle_day} ({best_ts.date.strftime('%d/%m/%Y')})"
                 sess_date = best_ts.date
+                sess_type = "Entrenamiento"
+                mins_val = float(best_tm.minutes_played or 70.0)
 
                 max_td = float(best_tm.total_distance or 0.0)
                 max_hsr = float(best_tm.hsr_distance or 0.0)
@@ -432,6 +436,8 @@ def sync_and_update_player_match_peaks(db: Session, club_id: int = DEFAULT_CLUB_
                 pos = (p.position or "Mediocentro").upper()
                 sess_name = "Perfil Posicional Estándar"
                 sess_date = date.today()
+                sess_type = "Teórico"
+                mins_val = 90.0
                 max_td = 10200.0 if "CENTRAL" not in pos else 9500.0
                 max_hsr = 400.0
                 max_sprint = 120.0
@@ -453,6 +459,8 @@ def sync_and_update_player_match_peaks(db: Session, club_id: int = DEFAULT_CLUB_
                 peak_max_speed=max_vmax,
                 peak_session_name=sess_name,
                 peak_session_date=sess_date,
+                peak_session_type=sess_type,
+                peak_minutes=round(mins_val, 1),
                 last_updated=datetime.utcnow()
             )
             db.add(new_peak)
@@ -467,6 +475,8 @@ def sync_and_update_player_match_peaks(db: Session, club_id: int = DEFAULT_CLUB_
             current_peak.peak_max_speed = max_vmax
             current_peak.peak_session_name = sess_name
             current_peak.peak_session_date = sess_date
+            current_peak.peak_session_type = sess_type
+            current_peak.peak_minutes = round(mins_val, 1)
             current_peak.last_updated = datetime.utcnow()
             updated_count += 1
 
@@ -1133,14 +1143,15 @@ def calculate_compliance_table(df_metrics: pd.DataFrame, targets_dict: Optional[
 # 5. METODOLOGÍA DEL PREPARADOR FÍSICO: TABLAS DE REFERENCIA EXCEL DE PARTIDOS
 # ==============================================================================
 
-def get_all_reference_matches(db: Session, club_id: int = DEFAULT_CLUB_ID) -> List[Dict[str, Any]]:
+def get_all_reference_matches(
+    db: Session,
+    club_id: int = DEFAULT_CLUB_ID,
+    include_individual_peaks: bool = True
+) -> List[Dict[str, Any]]:
     """
     Recupera exclusivamente los partidos oficiales de Liga regular (Temporada 26/27).
-    Filtra y excluye cualquier sesión de pretemporada, entrenamientos o amistosos previos.
-    Formato exacto solicitado:
-    '🏟️ Jornada 1: Partido contra CP Mijas Las Lagunas (06/09/2026)',
-    '🏟️ Jornada 2: Partido contra Recreativo de Huelva (20/09/2026)', etc.,
-    además del bloque virtual '🏆 PARTIDO RÉCORD CONSOLIDADO (100% Individual por Jugador)'.
+    - Si include_individual_peaks=False (Referencia Partidos P.F.): lista ÚNICAMENTE partidos oficiales de liga.
+    - Si include_individual_peaks=True (Planificación Pre-Sesión): incluye además la Máxima Exigencia Individual.
     """
     all_sessions = (
         db.query(TrainingSession)
@@ -1183,17 +1194,18 @@ def get_all_reference_matches(db: Session, club_id: int = DEFAULT_CLUB_ID) -> Li
 
     res: List[Dict[str, Any]] = []
 
-    # Opción 0: Máxima Exigencia Individual (Mejor Partido o Entrenamiento de cada jugador)
-    res.append({
-        "session_id": None,
-        "key": "PEAK_CONSOLIDATED",
-        "order": 0,
-        "name": "Máxima Exigencia Individual (Mejor Partido o Entrenamiento)",
-        "label": "⭐ Máxima Exigencia Individual (Mejor Partido o Entrenamiento de cada jugador)",
-        "date": date.today(),
-        "num_players": db.query(Player).filter(Player.club_id == club_id, Player.active == True).count(),
-        "total_distance_km": 0.0
-    })
+    # Opción 0: Máxima Exigencia Individual (SOLO si se solicita explícitamente para planificación pre-sesión)
+    if include_individual_peaks:
+        res.append({
+            "session_id": None,
+            "key": "PEAK_CONSOLIDATED",
+            "order": 0,
+            "name": "Máxima Exigencia Individual (100% de cada jugador)",
+            "label": "⭐ Máxima Exigencia Individual (100% Techo Dinámico de cada jugador)",
+            "date": date.today(),
+            "num_players": db.query(Player).filter(Player.club_id == club_id, Player.active == True).count(),
+            "total_distance_km": 0.0
+        })
 
     for idx, m in enumerate(sorted_league_matches, 1):
         p_count = db.query(PlayerMetric).filter(PlayerMetric.session_id == m.id).count()
@@ -1288,7 +1300,7 @@ def get_match_reference_table_data(
             td_m = float(m.total_distance or 0.0)
             hsr_m = float(m.hsr_distance or 0.0)
             vmax = float(m.max_speed or 0.0)
-            mins = float(m.minutes_played or 90.0)
+            mins = float(m.minutes_played or 0.0)
             acc = int(m.accelerations_eff or 0)
             dec = int(m.decelerations_eff or 0)
 
@@ -1315,6 +1327,8 @@ def get_match_reference_table_data(
                 "player_name": m.player_name,
                 "position_raw": m.position,
                 "position": pos_norm,
+                "session_type": "Partido",
+                "base_source": f"⚽ Partido ({mins:.0f}')" if mins > 0 else "Sin minutos",
                 "minutes": mins,
                 "total_distance_m": td_m,
                 "distance_km": round(td_m / 1000.0, 2),
@@ -1341,7 +1355,10 @@ def get_match_reference_table_data(
                 PlayerMatchPeak.peak_sprint,
                 PlayerMatchPeak.peak_acc_eff,
                 PlayerMatchPeak.peak_dec_eff,
-                PlayerMatchPeak.peak_max_speed
+                PlayerMatchPeak.peak_max_speed,
+                PlayerMatchPeak.peak_session_name,
+                PlayerMatchPeak.peak_session_type,
+                PlayerMatchPeak.peak_minutes
             )
             .join(PlayerMatchPeak, Player.id == PlayerMatchPeak.player_id)
             .filter(Player.club_id == club_id, Player.active == True)
@@ -1368,7 +1385,10 @@ def get_match_reference_table_data(
                 sprints_cnt = max(1, int(round(raw_sp / 18.0))) if raw_sp > 0 else 0
 
             has_played = td_m > 0.0
-            mins = 90.0 if has_played else 0.0
+            sess_type = p.peak_session_type or ("Partido" if "Partido" in str(p.peak_session_name) else "Entrenamiento")
+            real_mins = float(p.peak_minutes) if p.peak_minutes else (90.0 if sess_type == "Partido" else 70.0)
+            mins = real_mins if has_played else 0.0
+            base_source_label = f"⚽ Partido ({real_mins:.0f}')" if sess_type == "Partido" else (f"🏃 Entreno ({real_mins:.0f}')" if sess_type == "Entrenamiento" else f"📋 Teórico ({real_mins:.0f}')")
 
             perf_score = (
                 (td_m / 10000.0) * 0.35 +
@@ -1383,6 +1403,8 @@ def get_match_reference_table_data(
                 "player_name": p.player_name,
                 "position_raw": p.position,
                 "position": pos_norm,
+                "session_type": sess_type,
+                "base_source": base_source_label,
                 "minutes": mins,
                 "total_distance_m": td_m,
                 "distance_km": round(td_m / 1000.0, 2),
@@ -1659,12 +1681,39 @@ def calculate_excel_pre_session_prescription(
         if p.get("distance_km", 0.0) == 0.0:
             continue
 
-        min_dist_km = round(p["distance_km"] * (pct_td / 100.0), 2)
-        min_hsr = round(p["hsr_m"] * (pct_hsr / 100.0), 1)
-        min_sprint_m = round(p["sprint_m"] * (pct_sprint / 100.0), 1)
-        min_sprints = max(1, int(round(p["sprints_cnt"] * (pct_sprint / 100.0)))) if p["sprints_cnt"] > 0 else 0
-        min_acc = max(1, int(round(p["acc_expl"] * (pct_eff / 100.0)))) if p["acc_expl"] > 0 else 0
-        min_dec = max(1, int(round(p["dcc_expl"] * (pct_eff / 100.0)))) if p["dcc_expl"] > 0 else 0
+        p_sess_type = p.get("session_type", "Partido")
+        p_base_source = p.get("base_source", f"⚽ Partido ({p.get('minutes', 90):.0f}')")
+
+        # Proporcionalidad según metodología del preparador físico:
+        # - Evaluados por PARTIDO: porcentaje directo sobre el partido (ej. 40% DT de partido).
+        # - Evaluados por ENTRENAMIENTO: su 100% ya proviene de un entrenamiento de máxima exigencia.
+        #   Se ajusta proporcionalmente a la intensidad del entrenamiento para alcanzar metas realistas de sesión:
+        if p_sess_type == "Entrenamiento":
+            # Factores estándar del microciclo (proporción normal de un entreno vs partido)
+            std_td_day = 45.0
+            std_hsr_day = 30.0
+            std_sprint_day = 25.0
+            std_eff_day = 80.0
+
+            f_td = min(1.20, max(0.40, pct_td / std_td_day))
+            f_hsr = min(1.25, max(0.40, pct_hsr / std_hsr_day))
+            f_sprint = min(1.25, max(0.40, pct_sprint / std_sprint_day))
+            f_eff = min(1.25, max(0.40, pct_eff / std_eff_day))
+
+            min_dist_km = round(p["distance_km"] * f_td, 2)
+            min_hsr = round(p["hsr_m"] * f_hsr, 1)
+            min_sprint_m = round(p["sprint_m"] * f_sprint, 1)
+            min_sprints = max(1, int(round(p["sprints_cnt"] * f_sprint))) if p["sprints_cnt"] > 0 else 0
+            min_acc = max(1, int(round(p["acc_expl"] * f_eff))) if p["acc_expl"] > 0 else 0
+            min_dec = max(1, int(round(p["dcc_expl"] * f_eff))) if p["dcc_expl"] > 0 else 0
+        else:
+            min_dist_km = round(p["distance_km"] * (pct_td / 100.0), 2)
+            min_hsr = round(p["hsr_m"] * (pct_hsr / 100.0), 1)
+            min_sprint_m = round(p["sprint_m"] * (pct_sprint / 100.0), 1)
+            min_sprints = max(1, int(round(p["sprints_cnt"] * (pct_sprint / 100.0)))) if p["sprints_cnt"] > 0 else 0
+            min_acc = max(1, int(round(p["acc_expl"] * (pct_eff / 100.0)))) if p["acc_expl"] > 0 else 0
+            min_dec = max(1, int(round(p["dcc_expl"] * (pct_eff / 100.0)))) if p["dcc_expl"] > 0 else 0
+
         # Velocidad pico objetivo: 85-90% de su velocidad punta en partido
         target_vmax = round(p["max_speed"] * 0.88, 2)
 
@@ -1679,6 +1728,7 @@ def calculate_excel_pre_session_prescription(
             "POSICIÓN": p["position"],
             "JUGADOR": f"#{p['dorsal']} {p['player_name'].upper()}",
             "TIEMPO": f"{target_duration}'",
+            "BASE EVALUACIÓN": p_base_source,
             "DISTANCIA TOTAL (km)": f"{min_dist_km:.2f}",
             "VELOCIDAD MAX (km/h)": f"{target_vmax:.2f}",
             "HSR (m)": f"{min_hsr:.1f}",
@@ -1695,6 +1745,7 @@ def calculate_excel_pre_session_prescription(
         "POSICIÓN": "EQUIPO",
         "JUGADOR": "DATOS REFERENCIA GENERALES EQUIPO (OBJETIVOS MÍNIMOS)",
         "TIEMPO": f"{target_duration}'",
+        "BASE EVALUACIÓN": "PLANTILLA",
         "DISTANCIA TOTAL (km)": f"{tot_min_td_km:.2f} KM",
         "VELOCIDAD MAX (km/h)": f"{round(df_raw['max_speed'].max() * 0.90, 2):.2f} KM/H",
         "HSR (m)": f"{tot_min_hsr:.0f} m",

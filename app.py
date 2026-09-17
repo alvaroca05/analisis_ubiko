@@ -300,10 +300,10 @@ def get_cached_pre_session_prescription(microcycle_day: str, pct_td: float, pct_
 
 
 @st.cache_data(ttl=600)
-def get_cached_all_reference_matches():
+def get_cached_all_reference_matches(include_individual_peaks: bool = True):
     """Cachea los partidos oficiales y bloques de referencia disponibles."""
     with get_db() as db:
-        return get_all_reference_matches(db)
+        return get_all_reference_matches(db, include_individual_peaks=include_individual_peaks)
 
 
 @st.cache_data(ttl=600)
@@ -977,15 +977,14 @@ elif menu == "🏟️ Referencia Partidos (Excel P.F.)":
     </div>
     """, unsafe_allow_html=True)
 
-    # 1. Selector de Partido de Referencia / Comparador
-    ref_matches = get_cached_all_reference_matches()
+    # 1. Selector de Partido de Referencia Oficial (Exclusivo partidos de Liga)
+    ref_matches = get_cached_all_reference_matches(include_individual_peaks=False)
     match_dict = {m["label"]: m["session_id"] for m in ref_matches}
 
-    # Inicializar referencia activa en session_state si no existe
-    if "active_ref_session_id" not in st.session_state:
-        # Por defecto el primer partido real o consolidado
-        default_sess_id = ref_matches[1]["session_id"] if len(ref_matches) > 1 else None
-        default_label = ref_matches[1]["label"] if len(ref_matches) > 1 else ref_matches[0]["label"]
+    # Inicializar referencia activa en session_state si no existe o si contenía la opción individual
+    if "active_ref_session_id" not in st.session_state or st.session_state.get("active_ref_session_id") not in match_dict.values():
+        default_sess_id = ref_matches[0]["session_id"] if ref_matches else None
+        default_label = ref_matches[0]["label"] if ref_matches else ""
         st.session_state["active_ref_session_id"] = default_sess_id
         st.session_state["active_ref_match_label"] = default_label
 
@@ -993,12 +992,12 @@ elif menu == "🏟️ Referencia Partidos (Excel P.F.)":
     with col_m1:
         labels_list = list(match_dict.keys())
         curr_label = st.session_state.get("active_ref_match_label")
-        default_idx = labels_list.index(curr_label) if curr_label in labels_list else (1 if len(labels_list) > 1 else 0)
+        default_idx = labels_list.index(curr_label) if curr_label in labels_list else 0
         selected_match_label = st.selectbox(
-            "Seleccionar Partido para Visualizar / Bloque:",
+            "Seleccionar Partido Oficial para Visualizar:",
             labels_list,
             index=default_idx,
-            help="Permite inspeccionar cualquier partido oficial disputado o la plantilla de techos consolidados."
+            help="Muestra exclusivamente las actas oficiales de partidos de Liga disputados por el primer equipo."
         )
         selected_match_id = match_dict[selected_match_label]
 
@@ -1213,7 +1212,7 @@ elif menu == "📋 Planificación Pre-Sesión":
     """, unsafe_allow_html=True)
 
     # Selector de Partido de Referencia para la Prescripción
-    ref_matches = get_cached_all_reference_matches()
+    ref_matches = get_cached_all_reference_matches(include_individual_peaks=True)
     match_dict = {m["label"]: m["session_id"] for m in ref_matches}
 
     col_cfg0, col_cfg1 = st.columns([2, 1])
@@ -1380,8 +1379,9 @@ elif menu == "📋 Planificación Pre-Sesión":
             )
         with col_pf2:
             st.caption(
-                f"📌 Los valores mínimos resultan de multiplicar el rendimiento en **{sel_ref_label}** "
-                f"por los porcentajes fijados arriba ({pct_td_val:.0f}% DT, {pct_hsr_val:.0f}% HSR, {pct_sprint_val:.0f}% Sprint, {pct_eff_val:.0f}% AC.E)."
+                f"📌 Metas calculadas a partir de **{sel_ref_label}**. "
+                f"Los jugadores con base en **Partido** aplican los porcentajes fijados ({pct_td_val:.0f}% DT, {pct_hsr_val:.0f}% HSR, {pct_sprint_val:.0f}% Sprint, {pct_eff_val:.0f}% AC.E); "
+                f"los jugadores con base en **Entrenamiento** alcanzan una meta proporcional al tipo de sesión planificada."
             )
 
         mask_presc = (

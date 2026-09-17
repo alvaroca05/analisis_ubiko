@@ -133,9 +133,11 @@ class PlayerMatchPeak(Base):
     peak_dec_eff = Column(Integer, nullable=False, default=45)      # Desaceleraciones 100%
     peak_max_speed = Column(Float, nullable=False, default=32.0)    # Velocidad máxima en partido (km/h)
 
-    # Trazabilidad del partido de máxima exigencia
+    # Trazabilidad del partido / entrenamiento de máxima exigencia
     peak_session_name = Column(String(150), nullable=True)          # Ej: "vs Recreativo de Huelva"
     peak_session_date = Column(Date, nullable=True)
+    peak_session_type = Column(String(50), nullable=True)          # 'Partido' o 'Entrenamiento'
+    peak_minutes = Column(Float, nullable=True, default=90.0)      # Minutos disputados en la sesión pico
     last_updated = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     # Relación
