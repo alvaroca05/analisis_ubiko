@@ -11,5 +11,6 @@ enableCORS = false
 enableXsrfProtection = true
 
 [client]
-showErrorDetails = "full"
+showErrorDetails = "none"
+toolbarMode = "minimal"
 

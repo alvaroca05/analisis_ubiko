@@ -84,6 +84,16 @@ st.markdown("""
         background-color: #0E1117;
     }
 
+    /* OCULTAR ENLACES A GITHUB, MENÚ STREAMLIT Y BARRA SUPERIOR POR SEGURIDAD */
+    #MainMenu {visibility: hidden; display: none !important;}
+    header {visibility: hidden; height: 0px !important;}
+    footer {visibility: hidden; display: none !important;}
+    [data-testid="stToolbar"] {visibility: hidden; display: none !important;}
+    [data-testid="stDecoration"] {visibility: hidden; display: none !important;}
+    [data-testid="stStatusWidget"] {visibility: hidden; display: none !important;}
+    .viewerBadge_container__1QSob {display: none !important;}
+    [data-testid="manage-app-button"] {display: none !important;}
+
     /* Contenedor fluido y márgenes adaptativos para no desperdiciar pantalla en móvil */
     .block-container {
         padding-top: 1.5rem !important;
@@ -356,6 +366,60 @@ def get_cached_classified_session_states(session_id: int, reference_session_id: 
 
 
 # ==========================================
+# SEGURIDAD & AUTENTICACIÓN DEL CUERPO TÉCNICO
+# ==========================================
+def check_authentication() -> bool:
+    """Verifica si el usuario se ha autenticado con la contraseña de seguridad."""
+    if st.session_state.get("authenticated", False):
+        return True
+
+    configured_pwd = (
+        st.secrets.get("APP_PASSWORD")
+        if hasattr(st, "secrets") and "APP_PASSWORD" in st.secrets
+        else os.environ.get("APP_PASSWORD", "ubiko2026")
+    )
+
+    col_l1, col_l2, col_l3 = st.columns([1, 1.8, 1])
+    with col_l2:
+        st.write("")
+        st.write("")
+        st.markdown("""
+        <div style="background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%); border: 1px solid #334155; border-radius: 16px; padding: 26px 20px; text-align: center; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);">
+            <img src="https://img.icons8.com/color/96/football-ball.png" width="60" style="margin-bottom: 8px;"/>
+            <h2 style="color: #F8FAFC; margin: 0 0 6px 0; font-size: 1.45rem;">UBIKO Performance Hub</h2>
+            <div style="color: #94A3B8; font-size: 0.85rem; margin-bottom: 18px;">
+                🔒 Portal Confidencial de Telemetría GPS y Cargas de Competición.<br>
+                <span style="color: #00E676; font-weight: 600;">Acceso Restringido al Cuerpo Técnico</span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        st.write("")
+
+        with st.form("login_form", clear_on_submit=False):
+            entered_pwd = st.text_input(
+                "Contraseña de Acceso del Club:",
+                type="password",
+                placeholder="Introduce la clave del cuerpo técnico...",
+                help="Protege la telemetría, prescripciones y datos de los futbolistas frente a accesos no autorizados."
+            )
+            submit_btn = st.form_submit_button("🔑 Entrar al Sistema", type="primary", use_container_width=True)
+            if submit_btn:
+                if entered_pwd == configured_pwd:
+                    st.session_state["authenticated"] = True
+                    st.toast("¡Acceso concedido al Hub!", icon="⚽")
+                    st.rerun()
+                else:
+                    st.error("⛔ Contraseña incorrecta. Acceso restringido por confidencialidad del club.")
+
+        st.caption("🛡️ Datos protegidos con cifrado SSL y políticas de privacidad.")
+
+    return False
+
+if not check_authentication():
+    st.stop()
+
+
+# ==========================================
 # BARRA LATERAL (SIDEBAR)
 # ==========================================
 with st.sidebar:
@@ -451,6 +515,11 @@ with st.sidebar:
             st.rerun()
 
     st.caption("TFG Ingeniería Informática | Universidad de Córdoba")
+
+    st.divider()
+    if st.button("🔒 Cerrar Sesión", use_container_width=True, help="Bloquea el portal y cierra la sesión del cuerpo técnico."):
+        st.session_state["authenticated"] = False
+        st.rerun()
 
 
 # ==========================================
