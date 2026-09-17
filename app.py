@@ -222,7 +222,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-@st.cache_resource
+@st.cache_resource(show_spinner="Cargando...")
 def bootstrap_database():
     """
     Inicializa la base de datos y la plantilla oficial de 26 jugadores una sola vez al arrancar el servidor.
@@ -254,7 +254,7 @@ def bootstrap_database():
 bootstrap_database()
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, show_spinner="Cargando...")
 def get_cached_sessions():
     """Cachea la lista de sesiones durante 5 min en RAM (se invalida automáticamente al sincronizar)."""
     with get_db() as db:
@@ -275,14 +275,14 @@ def get_cached_sessions():
         return result
 
 
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=600, show_spinner="Cargando...")
 def get_cached_session_summary(session_id: int):
     """Cachea los KPIs, z-scores y resumen de la sesión en RAM para renderizado a 60 FPS."""
     with get_db() as db:
         return calculate_session_summary(db, session_id)
 
 
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=600, show_spinner="Cargando...")
 def get_cached_players_list():
     """Cachea la lista de futbolistas activos."""
     with get_db() as db:
@@ -290,35 +290,35 @@ def get_cached_players_list():
         return [(p.id, p.dorsal, p.name, p.position, p.max_speed_kmh) for p in players]
 
 
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=600, show_spinner="Cargando...")
 def get_cached_player_acwr(player_id: int, metric: str = "total_distance"):
     """Cachea la serie temporal de EWMA ACWR de un futbolista."""
     with get_db() as db:
         return calculate_ewma_acwr(db, player_id, load_metric=metric)
 
 
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=600, show_spinner="Cargando...")
 def get_cached_individual_compliance(session_id: int):
     """Cachea la comparativa individual respecto al 100% de Partido de Máxima Exigencia."""
     with get_db() as db:
         return calculate_individual_microcycle_compliance(db, session_id)
 
 
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=600, show_spinner="Cargando...")
 def get_cached_player_longitudinal(player_id: int):
     """Cachea el histórico de sesiones y techo de partido 100% para comparativas."""
     with get_db() as db:
         return get_player_longitudinal_comparison(db, player_id)
 
 
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=600, show_spinner="Cargando...")
 def get_cached_pre_session_prescription(microcycle_day: str, pct_td: float, pct_hsr: float, pct_eff: float):
     """Cachea las metas cuantitativas mínimas requeridas para la plantilla en planificación pre-sesión."""
     with get_db() as db:
         return calculate_pre_session_prescription(db, microcycle_day, pct_td, pct_hsr, pct_eff)
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, show_spinner="Cargando...")
 def get_cached_all_reference_matches(include_individual_peaks: bool = True):
     """Cachea los partidos oficiales y bloques de referencia disponibles."""
     with get_db() as db:
@@ -332,7 +332,7 @@ def get_cached_all_reference_matches(include_individual_peaks: bool = True):
         return matches
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, show_spinner="Cargando...")
 def get_cached_match_reference_table_data(session_id: Optional[int], top_player_id: Optional[int] = None):
     """Cachea la tabla de referencia de datos de partido idéntica al Excel del preparador."""
     with get_db() as db:
@@ -342,7 +342,7 @@ def get_cached_match_reference_table_data(session_id: Optional[int], top_player_
             return get_match_reference_table_data(db, session_id)
 
 
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=600, show_spinner="Cargando...")
 def get_cached_excel_pre_session_prescription(
     reference_session_id: Optional[int],
     microcycle_day: str,
@@ -358,14 +358,14 @@ def get_cached_excel_pre_session_prescription(
         )
 
 
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=600, show_spinner="Cargando...")
 def get_cached_post_session_multivariable_table(session_id: int, reference_session_id: Optional[int]):
     """Cachea la tabla de semáforo de déficit multivariable post-sesión."""
     with get_db() as db:
         return get_post_session_multivariable_table(db, session_id, reference_session_id)
 
 
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=600, show_spinner="Cargando...")
 def get_cached_classified_session_states(session_id: int, reference_session_id: Optional[int] = None):
     """Cachea la clasificación de la plantilla en los 3 estados operativos (Déficit, Óptimo, Sobre-estímulo)."""
     with get_db() as db:
