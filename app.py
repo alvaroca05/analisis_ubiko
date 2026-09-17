@@ -307,10 +307,10 @@ def get_cached_all_reference_matches():
 
 
 @st.cache_data(ttl=600)
-def get_cached_match_reference_table_data(session_id: Optional[int]):
+def get_cached_match_reference_table_data(session_id: Optional[int], top_player_id: Optional[int] = None):
     """Cachea la tabla de referencia de datos de partido idéntica al Excel del preparador."""
     with get_db() as db:
-        return get_match_reference_table_data(db, session_id)
+        return get_match_reference_table_data(db, session_id, top_player_id=top_player_id)
 
 
 @st.cache_data(ttl=600)
@@ -1017,7 +1017,40 @@ elif menu == "🏟️ Referencia Partidos (Excel P.F.)":
                 st.rerun()
 
     # 2. Obtener datos de la tabla de referencia
-    ref_data = get_cached_match_reference_table_data(selected_match_id)
+    ref_data_init = get_cached_match_reference_table_data(selected_match_id)
+    candidates = ref_data_init.get("top_candidates", [])
+    default_top_id = ref_data_init.get("top_player", {}).get("player_id") if ref_data_init.get("top_player") else None
+
+    cand_ids = [c["player_id"] for c in candidates]
+    top_state_key = f"active_top_player_{selected_match_id}"
+    if top_state_key not in st.session_state or st.session_state[top_state_key] not in cand_ids:
+        st.session_state[top_state_key] = default_top_id
+
+    curr_top_idx = cand_ids.index(st.session_state[top_state_key]) if st.session_state[top_state_key] in cand_ids else 0
+
+    col_top_sel, col_top_info = st.columns([1.7, 1.3])
+    with col_top_sel:
+        chosen_top_id = st.selectbox(
+            "⭐ Jugador TOP de Referencia (Minutos + Distancia + Criterio Cualitativo P.F.):",
+            options=cand_ids,
+            index=curr_top_idx,
+            format_func=lambda pid: next((c["label"] for c in candidates if c["player_id"] == pid), str(pid)),
+            help="El sistema sugiere automáticamente al jugador con mayor volumen entre los titulares (minutos y distancias). El preparador físico puede modificarlo a ojo cualitativo según la posición.",
+            key=f"sel_top_{selected_match_id}"
+        )
+        if chosen_top_id != st.session_state[top_state_key]:
+            st.session_state[top_state_key] = chosen_top_id
+            st.rerun()
+
+    with col_top_info:
+        st.caption("ℹ️ **Metodología Oficial del Preparador Físico**")
+        st.caption("Filtro por **minutos** (titulares >= 65'), clasificación por **distancia total** y **posición**, con ajuste libre **a ojo cualitativo**.")
+
+    if chosen_top_id != default_top_id:
+        ref_data = get_cached_match_reference_table_data(selected_match_id, top_player_id=chosen_top_id)
+    else:
+        ref_data = ref_data_init
+
     df_disp = ref_data.get("df_display", pd.DataFrame())
     top_p = ref_data.get("top_player")
     team_sum = ref_data.get("team_summary", {})

@@ -1231,7 +1231,8 @@ def get_all_reference_matches(db: Session, club_id: int = DEFAULT_CLUB_ID) -> Li
 def get_match_reference_table_data(
     db: Session,
     session_id: Optional[int] = None,
-    club_id: int = DEFAULT_CLUB_ID
+    club_id: int = DEFAULT_CLUB_ID,
+    top_player_id: Optional[int] = None
 ) -> Dict[str, Any]:
     """
     Genera la tabla de referencia de datos de partido idéntica al formato Excel del preparador físico:
@@ -1401,26 +1402,40 @@ def get_match_reference_table_data(
             "df_full": pd.DataFrame(),
             "df_raw": pd.DataFrame(),
             "top_player": None,
+            "top_candidates": [],
             "team_summary": {}
         }
 
-    # 1. Localizar al JUGADOR TOP (respetando la designación oficial del preparador físico en sus actas)
-    valid_candidates = [p for p in players_data if p.get("perf_score", 0.0) > 0.0 and p["dorsal"] != 7 and p["minutes"] > 0]
-    
-    top_player_item = None
-    if session_id is not None:
-        sess = db.query(TrainingSession).filter(TrainingSession.id == session_id).first()
-        sess_name_upper = (sess.name or "").upper() if sess else ""
-        if "MIJAS" in sess_name_upper or "LAGUNAS" in sess_name_upper:
-            # En el acta oficial del preparador físico, el JUGADOR TOP de Mijas es Polaco (12.06 km)
-            top_player_item = next((p for p in valid_candidates if "POLACO" in p["player_name"].upper() or p["dorsal"] == 14), None)
-        elif "RECREATIVO" in sess_name_upper or "HUELVA" in sess_name_upper:
-            # En el acta oficial del preparador físico, el JUGADOR TOP de Recreativo es Manu Viana (12.05 km)
-            top_player_item = next((p for p in valid_candidates if "VIANA" in p["player_name"].upper() or p["dorsal"] == 15), None)
+    # =========================================================================
+    # 1. LOCALIZAR AL JUGADOR TOP
+    # Metodología del Preparador Físico: "por distancias, minutos y a ojo cualitativo y posición"
+    # =========================================================================
+    max_session_mins = max([p["minutes"] for p in players_data if p["minutes"] > 0], default=90.0)
+    # Umbral de minutos representativos (partido completo / titulares habituales: >= 65 min o 70% del máx)
+    threshold_mins = min(65.0, max_session_mins * 0.70) if max_session_mins > 30.0 else 0.0
 
-    if not top_player_item:
-        top_player_item = max(valid_candidates, key=lambda x: x["perf_score"]) if valid_candidates else players_data[0]
-    top_player_id = top_player_item["player_id"]
+    # Candidatos ordenados según el criterio del P.F.:
+    # 1) Haber cumplido los minutos requeridos (prioridad a titulares)
+    # 2) Mayor Distancia Total (km)
+    # 3) Mayor volumen de Alta Intensidad (HSR)
+    top_candidates = sorted(
+        [p for p in players_data if p["distance_km"] > 0],
+        key=lambda x: (x["minutes"] >= threshold_mins, x["distance_km"], x["hsr_m"]),
+        reverse=True
+    )
+
+    top_player_item = None
+    # A) Criterio cualitativo manual ("a ojo cualitativo"): si el P.F. seleccionó a un jugador específico
+    if top_player_id is not None:
+        top_player_item = next((p for p in players_data if p["player_id"] == top_player_id), None)
+
+    # B) Si no hay selección manual, sugerir automáticamente al candidato #1 según minutos y distancia:
+    if not top_player_item and top_candidates:
+        top_player_item = top_candidates[0]
+    elif not top_player_item and players_data:
+        top_player_item = players_data[0]
+
+    top_player_id = top_player_item["player_id"] if top_player_item else None
 
     # 2. Ordenar por Bloque Posicional y dorsal
     players_sorted = sorted(
@@ -1477,7 +1492,7 @@ def get_match_reference_table_data(
 
     # Filas 2 a 6: Una por cada demarcación posicional clave
     for role in target_roles:
-        cands = [
+        cands_all = [
             p for p in players_data
             if p["minutes"] > 0 and (
                 p["position"] == role or
@@ -1488,12 +1503,21 @@ def get_match_reference_table_data(
                 (role == "DELANTERO" and p["player_name"].upper() in ["SALVA", "SALVA VEGAS", "LOREN", "BIANCO", "JOSEMI", "SETH VEGA", "MORO"])
             )
         ]
+        cands_no_top = [p for p in cands_all if p["player_id"] != top_player_item["player_id"]]
+        cands_pool = cands_no_top if cands_no_top else cands_all
 
-        if cands:
-            # Seleccionar al jugador titular de referencia (priorizar minutos y exigencia física)
-            best_p = max(cands, key=lambda x: (x["minutes"] >= 65, x["perf_score"]))
+        # Preferir candidatos cuya posición natural en BD sea exactamente 'role' si tienen minutos suficientes
+        cands_exact = [p for p in cands_pool if p["position"] == role]
+        if any(p["minutes"] >= 65 for p in cands_exact):
+            cands = [p for p in cands_exact if p["minutes"] >= 65]
+        elif cands_exact and not any(p["minutes"] >= 65 for p in cands_pool):
+            cands = cands_exact
         else:
-            best_p = next((p for p in players_data if p["position"] == role and p["dorsal"] != 7), None)
+            cands = cands_pool
+
+        best_p = max(cands, key=lambda x: (x["minutes"] >= 65, x["distance_km"], x["hsr_m"])) if cands else None
+        if not best_p:
+            best_p = next((p for p in players_data if p["position"] == role), None)
 
         if best_p:
             official_rows.append({
@@ -1558,6 +1582,18 @@ def get_match_reference_table_data(
         "df_full": df_full,
         "df_raw": pd.DataFrame(players_data),
         "top_player": top_player_item,
+        "top_candidates": [
+            {
+                "player_id": p["player_id"],
+                "dorsal": p["dorsal"],
+                "player_name": p["player_name"],
+                "position": p["position"],
+                "distance_km": p["distance_km"],
+                "minutes": p["minutes"],
+                "label": f"#{p['dorsal']} {p['player_name'].upper()} ({p['position']}) — {p['distance_km']:.2f} km ({p['minutes']:.0f}')"
+            }
+            for p in top_candidates
+        ],
         "team_summary": team_summary
     }
 
