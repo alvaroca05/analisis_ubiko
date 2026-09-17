@@ -815,6 +815,24 @@ if menu == "📊 Panel de Sesión & Semáforo":
                     width="stretch",
                     hide_index=True
                 )
+                col_em1, col_em2 = st.columns([2.5, 1.5])
+                with col_em2:
+                    try:
+                        from src.services.excel_exporter import export_dataframe_to_formatted_excel
+                        excel_post = export_dataframe_to_formatted_excel(
+                            df=df_post_multi,
+                            sheet_name="Real vs Prescrito",
+                            header_color="1E3A8A"
+                        )
+                        st.download_button(
+                            label="📊 Descargar Comparativa (.xlsx)",
+                            data=excel_post,
+                            file_name=f"comparativa_real_vs_meta_{sess.date}_{sess.microcycle_day}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            use_container_width=True
+                        )
+                    except Exception as e_xl:
+                        st.caption(f"Aviso Excel: {e_xl}")
     else:
         st.info("Sin registros de prescripción individual disponibles para esta sesión.")
 
@@ -1172,7 +1190,7 @@ elif menu == "🏟️ Referencia Partidos (Excel P.F.)":
             hide_index=True
         )
 
-        col_dl1, col_dl2, col_dl3 = st.columns([1.6, 1.3, 1.1])
+        col_dl1, col_dl2, col_dl3, col_dl4 = st.columns([1.0, 1.3, 1.2, 0.7])
         with col_dl2:
             try:
                 from src.services.pdf_generator import generate_match_reference_pdf
@@ -1194,9 +1212,29 @@ elif menu == "🏟️ Referencia Partidos (Excel P.F.)":
                 st.error(f"Aviso generando PDF: {e_pdf}")
 
         with col_dl3:
+            try:
+                from src.services.excel_exporter import export_dataframe_to_formatted_excel
+                safe_fname = selected_match_label.replace("🏟️", "").replace("🏆", "").strip().replace(" ", "_")[:28]
+                excel_ref = export_dataframe_to_formatted_excel(
+                    df=df_view,
+                    sheet_name=f"Referencia {safe_fname[:20]}",
+                    header_color="1E3A8A"
+                )
+                st.download_button(
+                    label="📊 Descargar Excel (.xlsx)",
+                    data=excel_ref,
+                    file_name=f"referencia_{safe_fname}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                    help="Descarga el libro de Excel oficial (.xlsx) con los colores, bordes y anchos ajustados."
+                )
+            except Exception as e_xl:
+                st.error(f"Aviso generando Excel: {e_xl}")
+
+        with col_dl4:
             csv_data = df_view[cols_clean].to_csv(index=False, sep=";").encode("utf-8-sig")
             st.download_button(
-                "📥 Descargar CSV",
+                "📥 CSV",
                 data=csv_data,
                 file_name=f"referencia_partido_{selected_match_id or 'record'}.csv",
                 mime="text/csv",
@@ -1423,11 +1461,31 @@ elif menu == "📋 Planificación Pre-Sesión":
             hide_index=True
         )
 
-        col_dlp1, col_dlp2 = st.columns([3, 1])
+        col_dlp1, col_dlp2, col_dlp3 = st.columns([1.8, 1.3, 0.9])
         with col_dlp2:
+            try:
+                from src.services.excel_exporter import export_dataframe_to_formatted_excel
+                excel_presc = export_dataframe_to_formatted_excel(
+                    df=df_p_view,
+                    sheet_name=f"Planificación {sel_day}",
+                    header_color="1E3A8A"
+                )
+                st.download_button(
+                    label="📊 Descargar Excel Oficial (.xlsx)",
+                    data=excel_presc,
+                    file_name=f"planificacion_{sel_day}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    type="primary",
+                    use_container_width=True,
+                    help="Descarga el libro de Excel oficial (.xlsx) con los colores, tipografía, bordes y anchos de columna del preparador físico."
+                )
+            except Exception as e_xl:
+                st.error(f"Aviso generando Excel: {e_xl}")
+
+        with col_dlp3:
             csv_presc = df_p_view[cols_p_clean].to_csv(index=False, sep=";").encode("utf-8-sig")
             st.download_button(
-                "📥 Descargar Planificación (CSV Excel)",
+                "📥 Descargar CSV",
                 data=csv_presc,
                 file_name=f"planificacion_{sel_day}.csv",
                 mime="text/csv",
