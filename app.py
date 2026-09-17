@@ -1501,10 +1501,17 @@ elif menu == "📈 Evolución Longitudinal & ACWR":
     player_dict = {f"#{dorsal} - {name} ({pos})": p_id for p_id, dorsal, name, pos, _ in players_data}
     player_info = {p_id: (name, pos, vmax) for p_id, dorsal, name, pos, vmax in players_data}
 
-    col_p1, col_p2 = st.columns([2, 1])
+    col_p1, col_p2 = st.columns([1.6, 1.4])
     with col_p1:
         selected_player_str = st.selectbox("Seleccionar Jugador para análisis longitudinal:", list(player_dict.keys()))
         selected_player_id = player_dict[selected_player_str]
+    with col_p2:
+        time_window = st.selectbox(
+            "Ventana Temporal de Análisis:",
+            ["Temporada Actual (Últimos 30 días)", "Pretemporada y Temporada (Últimos 60 días)", "Todo el Historial"],
+            index=0,
+            help="Enfoca el gráfico en la ventana de competición activa para visualizar las sesiones con el ancho óptimo sin huecos vacíos."
+        )
 
     df_acwr = get_cached_player_acwr(selected_player_id, metric="total_distance")
     player_name, player_pos, player_max_speed = player_info.get(selected_player_id, ("", "", 32.0))
@@ -1559,9 +1566,22 @@ elif menu == "📈 Evolución Longitudinal & ACWR":
         # Leyenda visual del semáforo fisiológico
         st.markdown(render_semaforo_legend_html(), unsafe_allow_html=True)
 
+        # Filtrar datos para el gráfico según la ventana temporal elegida
+        max_dt = df_acwr["date"].max()
+        if "30" in time_window:
+            df_acwr_plot = df_acwr[df_acwr["date"] >= (max_dt - pd.Timedelta(days=30))].copy()
+        elif "60" in time_window:
+            df_acwr_plot = df_acwr[df_acwr["date"] >= (max_dt - pd.Timedelta(days=60))].copy()
+        else:
+            df_acwr_plot = df_acwr.copy()
+
         # Gráfico longitudinal interactivo de Plotly (ACWR EWMA)
-        fig_acwr = create_acwr_longitudinal_chart(df_acwr, player_name)
-        st.plotly_chart(fig_acwr, width="stretch")
+        fig_acwr = create_acwr_longitudinal_chart(df_acwr_plot, player_name)
+        st.plotly_chart(
+            fig_acwr,
+            width="stretch",
+            config={"displaylogo": False, "modeBarButtonsToRemove": ["lasso2d", "select2d"]}
+        )
 
         st.divider()
 

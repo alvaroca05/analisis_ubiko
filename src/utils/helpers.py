@@ -2,7 +2,7 @@
 Funciones auxiliares para formateo de datos, semáforos visuales y generación de gráficos interactivos con Plotly.
 """
 
-from typing import Optional
+from typing import Optional, Any
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -57,6 +57,7 @@ def render_semaforo_legend_html() -> str:
 def create_acwr_longitudinal_chart(df_acwr: pd.DataFrame, player_name: str) -> go.Figure:
     """
     Crea un gráfico interactivo con Plotly de Carga Aguda, Crónica y ratio ACWR con bandas de riesgo.
+    Optimizado visualmente para evitar solapamientos de leyendas y desajustes de escala.
     """
     if df_acwr.empty:
         fig = go.Figure()
@@ -67,12 +68,12 @@ def create_acwr_longitudinal_chart(df_acwr: pd.DataFrame, player_name: str) -> g
     fig = make_subplots(
         rows=2, cols=1,
         shared_xaxes=True,
-        vertical_spacing=0.10,
+        vertical_spacing=0.14,
         subplot_titles=(
-            f"Evolución de Cargas de Trabajo (EWMA) - {player_name}",
-            "Ratio de Carga Aguda / Crónica (ACWR)"
+            f"<b>Carga Diaria de Sesión y Tendencias de Adaptación (EWMA) — #{player_name}</b>",
+            "<b>Ratio de Fatiga Aguda / Crónica (ACWR)</b>"
         ),
-        row_heights=[0.6, 0.4]
+        row_heights=[0.58, 0.42]
     )
 
     # Panel Superior: Barras de Carga Diaria
@@ -81,8 +82,9 @@ def create_acwr_longitudinal_chart(df_acwr: pd.DataFrame, player_name: str) -> g
             x=df_acwr["date"],
             y=df_acwr["load_value"],
             name="Carga Sesión (m)",
-            marker_color="rgba(156, 163, 175, 0.4)",
-            opacity=0.6
+            marker_color="rgba(148, 163, 184, 0.45)",
+            marker_line_width=0,
+            opacity=0.75
         ),
         row=1, col=1
     )
@@ -94,8 +96,9 @@ def create_acwr_longitudinal_chart(df_acwr: pd.DataFrame, player_name: str) -> g
             y=df_acwr["acute_ewma"],
             name="Carga Aguda (EWMA 7d)",
             mode="lines+markers",
-            line=dict(color="#3B82F6", width=2.5),
-            marker=dict(size=4)
+            line=dict(color="#3B82F6", width=2.8),
+            marker=dict(size=5, color="#60A5FA"),
+            connectgaps=True
         ),
         row=1, col=1
     )
@@ -107,57 +110,63 @@ def create_acwr_longitudinal_chart(df_acwr: pd.DataFrame, player_name: str) -> g
             y=df_acwr["chronic_ewma"],
             name="Carga Crónica (EWMA 28d)",
             mode="lines",
-            line=dict(color="#10B981", width=2.5, dash="dash")
+            line=dict(color="#10B981", width=2.5, dash="dash"),
+            connectgaps=True
         ),
         row=1, col=1
     )
 
-    # Panel Inferior: Curva de ACWR
+    # Panel Inferior: Curva de ACWR con marcadores por estado
     fig.add_trace(
         go.Scatter(
             x=df_acwr["date"],
             y=df_acwr["acwr"],
-            name="ACWR",
+            name="Ratio ACWR",
             mode="lines+markers",
             line=dict(color="#8B5CF6", width=2.5),
             marker=dict(
-                size=6,
-                color=[c for c in df_acwr["acwr_color"]]
-            )
+                size=7,
+                color=[c for c in df_acwr.get("acwr_color", ["#8B5CF6"] * len(df_acwr))]
+            ),
+            connectgaps=True
         ),
         row=2, col=1
     )
 
-    # Bandas de referencia en ACWR
-    start_date = df_acwr["date"].min()
-    end_date = df_acwr["date"].max()
+    # Rango dinámico para el eje Y de ACWR para que ningún valor quede cortado
+    valid_acwr = df_acwr["acwr"].dropna()
+    max_acwr_val = float(valid_acwr.max()) if not valid_acwr.empty else 2.0
+    y_max = max(2.5, round(max_acwr_val * 1.15, 1))
 
     # Banda Verde: Sweet Spot (0.80 - 1.30)
     fig.add_hrect(
         y0=0.80, y1=1.30,
-        fillcolor="rgba(16, 185, 129, 0.15)",
+        fillcolor="rgba(16, 185, 129, 0.14)",
         line_width=0,
         annotation_text="Sweet Spot (0.8 - 1.3)",
         annotation_position="top left",
+        annotation_font=dict(size=10, color="#34D399"),
         row=2, col=1
     )
 
     # Banda Amarilla: Precaución (1.30 - 1.50)
     fig.add_hrect(
         y0=1.30, y1=1.50,
-        fillcolor="rgba(245, 158, 11, 0.15)",
+        fillcolor="rgba(245, 158, 11, 0.14)",
         line_width=0,
         annotation_text="Precaución (1.3 - 1.5)",
+        annotation_font=dict(size=10, color="#FBBF24"),
         annotation_position="top left",
         row=2, col=1
     )
 
     # Banda Roja: Riesgo de sobrecarga (> 1.50)
     fig.add_hrect(
-        y0=1.50, y1=2.50,
-        fillcolor="rgba(239, 68, 68, 0.15)",
+        y0=1.50, y1=y_max,
+        fillcolor="rgba(239, 68, 68, 0.14)",
         line_width=0,
         annotation_text="Zona de Peligro (> 1.5)",
+        annotation_font=dict(size=10, color="#F87171"),
         annotation_position="top left",
         row=2, col=1
     )
@@ -165,14 +174,24 @@ def create_acwr_longitudinal_chart(df_acwr: pd.DataFrame, player_name: str) -> g
     fig.update_layout(
         template="plotly_dark",
         autosize=True,
-        height=540,
-        margin=dict(l=20, r=20, t=50, b=30),
+        height=580,
+        margin=dict(l=30, r=20, t=65, b=40),
         hovermode="x unified",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(size=10))
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.04,
+            xanchor="center",
+            x=0.5,
+            font=dict(size=11),
+            bgcolor="rgba(15, 23, 42, 0.7)",
+            bordercolor="rgba(51, 65, 85, 0.5)",
+            borderwidth=1
+        )
     )
 
     fig.update_yaxes(title_text="Distancia (m)", row=1, col=1)
-    fig.update_yaxes(title_text="Ratio ACWR", range=[0.3, 2.2], row=2, col=1)
+    fig.update_yaxes(title_text="Ratio ACWR", range=[0.0, y_max], row=2, col=1)
     fig.update_xaxes(title_text="Fecha", row=2, col=1)
 
     return fig
