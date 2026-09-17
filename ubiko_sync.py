@@ -47,8 +47,67 @@ UBIKO_URL = os.getenv("UBIKO_URL", "https://admin.ubikosports.com/team/sessions"
 UBIKO_USER = os.getenv("UBIKO_USER", "alvarocab0510@gmail.com")
 UBIKO_PASSWORD = os.getenv("UBIKO_PASSWORD", "ubikopuente26")
 SESSION_STORAGE = DATA_DIR / "ubiko_session_auth.json"
-REPORTS_DIR = DATA_DIR / "reports"
-REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+# Cargar credenciales desde st.secrets si está disponible (entorno Streamlit Cloud)
+try:
+    import streamlit as _st
+    if hasattr(_st, "secrets"):
+        if "UBIKO_USER" in _st.secrets:
+            UBIKO_USER = _st.secrets["UBIKO_USER"]
+        if "UBIKO_PASSWORD" in _st.secrets:
+            UBIKO_PASSWORD = _st.secrets["UBIKO_PASSWORD"]
+        if "UBIKO_URL" in _st.secrets:
+            UBIKO_URL = _st.secrets["UBIKO_URL"]
+except Exception:
+    pass
+
+# Argumentos indispensables para ejecutar Chromium en contenedores Linux / Cloud sin entorno gráfico
+LINUX_CONTAINER_ARGS = [
+    "--no-sandbox",
+    "--disable-setuid-sandbox",
+    "--disable-dev-shm-usage",
+    "--disable-gpu",
+    "--no-first-run",
+    "--no-zygote",
+    "--single-process",
+]
+
+
+def ensure_playwright_installed() -> bool:
+    """
+    Verifica de forma proactiva que exista un binario de Chromium utilizable.
+    Si no existe, invoca 'playwright install chromium' automáticamente.
+    """
+    # 1. En Linux, comprobar si existe algún binario del sistema instalado por packages.txt / apt
+    if os.name != "nt":
+        for sys_path in ["/usr/bin/chromium", "/usr/bin/chromium-browser", "/usr/bin/google-chrome", "/usr/bin/google-chrome-stable"]:
+            if os.path.exists(sys_path):
+                return True
+
+    # 2. Comprobar si Playwright ya descargó Chromium en su directorio de caché local
+    cache_dirs = []
+    if os.name == "nt":
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        if local_app_data:
+            cache_dirs.append(Path(local_app_data) / "ms-playwright")
+    else:
+        cache_dirs.append(Path.home() / ".cache" / "ms-playwright")
+
+    for cdir in cache_dirs:
+        if cdir.exists():
+            chrome_bins = list(cdir.glob("**/chrome.exe")) + list(cdir.glob("**/chrome"))
+            if chrome_bins:
+                return True
+
+    # 3. Descargar automáticamente el binario
+    try:
+        import subprocess, sys
+        print("[UBIKO] Binario Chromium no detectado. Descargando automáticamente con Playwright...")
+        cmd = [sys.executable, "-m", "playwright", "install", "chromium"]
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+        return res.returncode == 0
+    except Exception as e:
+        print(f"[UBIKO] Error en ensure_playwright_installed: {e}")
+        return False
 
 
 class UbikoSyncService:
@@ -96,52 +155,78 @@ class UbikoSyncService:
 
         import subprocess
 
+        # Asegurar binario de Chromium antes de inicializar Playwright
+        ensure_playwright_installed()
+
         # En Linux o contenedores cloud sin pantalla gráfica ($DISPLAY), forzar headless=True
         is_headless = self.headless
         is_cloud_linux = os.name != "nt" and not os.getenv("DISPLAY")
         if is_cloud_linux:
             is_headless = True
 
+        extra_args = LINUX_CONTAINER_ARGS if (is_cloud_linux or os.name != "nt") else []
+
         try:
             with sync_playwright() as p:
                 browser = None
                 launch_errors = []
 
-                # Intento 1: Chromium estándar de Playwright
-                try:
-                    browser = p.chromium.launch(headless=is_headless, timeout=25000)
-                except Exception as e1:
-                    launch_errors.append(f"Chromium: {e1}")
+                # Intento 1: Binarios Chromium del sistema en Linux (instalados vía packages.txt / apt)
+                if os.name != "nt":
+                    for sys_bin in ["/usr/bin/chromium", "/usr/bin/chromium-browser", "/usr/bin/google-chrome", "/usr/bin/google-chrome-stable"]:
+                        if os.path.exists(sys_bin):
+                            try:
+                                browser = p.chromium.launch(
+                                    executable_path=sys_bin,
+                                    headless=True,
+                                    args=extra_args,
+                                    timeout=25000
+                                )
+                                print(f"[UBIKO] Navegador iniciado usando binario del sistema: {sys_bin}")
+                                break
+                            except Exception as e_sys:
+                                launch_errors.append(f"SysBin({sys_bin}): {e_sys}")
 
-                # Intento 2: Microsoft Edge nativo de Windows
+                # Intento 2: Chromium estándar de Playwright (con flags de contenedor Linux)
+                if not browser:
+                    try:
+                        browser = p.chromium.launch(
+                            headless=is_headless,
+                            args=extra_args,
+                            timeout=25000
+                        )
+                    except Exception as e1:
+                        launch_errors.append(f"Chromium: {e1}")
+
+                # Intento 3: Microsoft Edge nativo de Windows
                 if not browser and os.name == "nt":
                     try:
                         browser = p.chromium.launch(channel="msedge", headless=is_headless, timeout=25000)
                     except Exception as e2:
                         launch_errors.append(f"Edge: {e2}")
 
-                # Intento 3: Google Chrome nativo
+                # Intento 4: Google Chrome nativo
                 if not browser:
                     try:
-                        browser = p.chromium.launch(channel="chrome", headless=is_headless, timeout=25000)
+                        browser = p.chromium.launch(channel="chrome", headless=is_headless, args=extra_args, timeout=25000)
                     except Exception as e3:
                         launch_errors.append(f"Chrome: {e3}")
 
-                # Intento 4: Si era headless y falló, intentar headless=False
-                if not browser and is_headless and not is_cloud_linux:
+                # Intento 5: Modo visible si es Windows y falló headless
+                if not browser and is_headless and os.name == "nt":
                     try:
                         browser = p.chromium.launch(headless=False, timeout=25000)
                     except Exception as e4:
                         launch_errors.append(f"Visible: {e4}")
 
-                # Intento 5: Auto-instalación de Chromium si faltaba
-                if not browser and not is_cloud_linux:
+                # Intento 6: Reintento final de auto-instalación en caliente si faltaba el binario
+                if not browser:
                     try:
-                        print("[UBIKO] Descargando e instalando Chromium para Playwright...")
+                        print("[UBIKO] Reintento de emergencia: ejecutando playwright install chromium...")
                         subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True, timeout=120)
-                        browser = p.chromium.launch(headless=is_headless, timeout=25000)
+                        browser = p.chromium.launch(headless=is_headless, args=extra_args, timeout=25000)
                     except Exception as e5:
-                        launch_errors.append(f"Install: {e5}")
+                        launch_errors.append(f"InstallEmergency: {e5}")
 
                 if not browser:
                     err_msg = launch_errors[0] if launch_errors else "Navegador no disponible"
@@ -149,7 +234,7 @@ class UbikoSyncService:
                     return {
                         "success": False,
                         "status": "browser_error",
-                        "message": f"No se pudo iniciar el navegador de sincronización ({err_msg}). Prueba activando 'Ver navegador en pantalla' o descarga el CSV en UBIKO Web."
+                        "message": f"No se pudo iniciar el navegador de sincronización ({err_msg}). Puedes descargar el CSV desde UBIKO Web y subirlo directamente en '📥 Ingesta de Datos GPS' o en el panel lateral."
                     }
 
                 try:

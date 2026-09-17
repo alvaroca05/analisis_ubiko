@@ -238,6 +238,15 @@ def bootstrap_database():
         # Sincronizar techos dinámicos del 100% de partido de máxima exigencia
         from src.services.analytics import sync_and_update_player_match_peaks
         sync_and_update_player_match_peaks(db)
+
+    # Iniciar verificación/descarga de Chromium en segundo plano para estar listo ante clics del P.F.
+    try:
+        import threading
+        from ubiko_sync import ensure_playwright_installed
+        threading.Thread(target=ensure_playwright_installed, daemon=True).start()
+    except Exception:
+        pass
+
     return True
 
 
@@ -497,6 +506,23 @@ with st.sidebar:
                 st.info(f"ℹ️ {msg}")
             else:
                 st.error(f"❌ {msg}")
+
+    with st.expander("📁 Subir CSV de UBIKO directamente", expanded=False):
+        st.caption("Si prefieres no usar la extracción web o estás en un entorno restringido, puedes subir aquí el `.csv` descargado de UBIKO:")
+        sb_uploaded = st.file_uploader("Arrastra tu archivo CSV:", type=["csv", "xlsx"], key="sb_quick_csv")
+        if sb_uploaded is not None:
+            from src.services.importer import UbikoImporter
+            with st.spinner("Procesando e insertando en Supabase..."):
+                df_parsed = UbikoImporter.parse_file(sb_uploaded, sb_uploaded.name)
+                with get_db() as db:
+                    res_imp = UbikoImporter.import_session_to_db(db, df_parsed, original_filename=sb_uploaded.name)
+                st.cache_data.clear()
+                if res_imp.get("success"):
+                    st.success(f"✅ {res_imp.get('message', 'Sesión importada correctamente')}")
+                    time.sleep(1.2)
+                    st.rerun()
+                else:
+                    st.error(f"❌ {res_imp.get('error', 'Error al importar archivo')}")
 
     col_sb1, col_sb2 = st.columns(2)
     with col_sb1:
