@@ -359,10 +359,10 @@ def get_cached_excel_pre_session_prescription(
 
 
 @st.cache_data(ttl=600, show_spinner="Cargando...")
-def get_cached_post_session_multivariable_table(session_id: int, reference_session_id: Optional[int]):
+def get_cached_post_session_multivariable_table(session_id: int, reference_session_id: Optional[int], level: Optional[int] = None):
     """Cachea la tabla de semáforo de déficit multivariable post-sesión."""
     with get_db() as db:
-        return get_post_session_multivariable_table(db, session_id, reference_session_id)
+        return get_post_session_multivariable_table(db, session_id, reference_session_id, level=level)
 
 
 @st.cache_data(ttl=600, show_spinner="Cargando...")
@@ -438,6 +438,8 @@ with st.sidebar:
 
     if "nav_menu" not in st.session_state:
         st.session_state["nav_menu"] = "📊 Panel de Sesión & Semáforo"
+    elif st.session_state.get("nav_menu") == "📋 Planificación Pre-Sesión":
+        st.session_state["nav_menu"] = "📋 Planificación & Comparativa (50/70/80%)"
 
     if st.button("⏱️ Añadir / Registrar RPE", type="primary", use_container_width=True, help="Abrir registro de percepción de esfuerzo de la sesión (Foster 1-10)"):
         st.session_state["nav_menu"] = "⏱️ Carga Interna & Registro RPE"
@@ -450,7 +452,7 @@ with st.sidebar:
         [
             "📊 Panel de Sesión & Semáforo",
             "🏟️ Referencia Partidos (Excel P.F.)",
-            "📋 Planificación Pre-Sesión",
+            "📋 Planificación & Comparativa (50/70/80%)",
             "📈 Evolución Longitudinal & ACWR",
             "📝 Informe Táctico Ejecutivo",
             "🤖 Asistente de IA (Cuerpo Técnico)",
@@ -1334,252 +1336,362 @@ elif menu == "🏟️ Referencia Partidos (Excel P.F.)":
 # ==========================================
 # VISTA: PLANIFICACIÓN PRE-SESIÓN (CALCULADORA DE OBJETIVOS)
 # ==========================================
-elif menu == "📋 Planificación Pre-Sesión":
+# ==========================================
+# VISTA: COMPARATIVA DE SESIÓN VS. EXIGENCIAS DE PARTIDO (50% / 70% / 80%)
+# ==========================================
+elif menu in ["📋 Planificación & Comparativa (50/70/80%)", "📋 Planificación Pre-Sesión"]:
     st.markdown("""
-    <div style="background: linear-gradient(90deg, #1E293B 0%, #0F172A 100%); padding: 16px 20px; border-radius: 12px; border: 1px solid #334155; margin-bottom: 18px;">
-        <h2 style="color: #F8FAFC; margin: 0; font-size: 1.30rem;">
-            📋 Planificación Pre-Sesión (Calculadora de Objetivos del Preparador)
+    <div style="background: linear-gradient(90deg, #1E293B 0%, #0F172A 100%); padding: 18px 22px; border-radius: 12px; border: 1px solid #334155; margin-bottom: 18px;">
+        <h2 style="color: #F8FAFC; margin: 0; font-size: 1.35rem;">
+            📋 Comparativa de Sesión vs. Exigencias de Partido (50% / 70% / 80%)
         </h2>
-        <p style="color: #94A3B8; margin: 5px 0 0 0; font-size: 0.85rem;">
-            Prescribe las metas cuantitativas mínimas requeridas antes del entrenamiento aplicando los porcentajes deseados sobre el partido de referencia.
+        <p style="color: #94A3B8; margin: 6px 0 0 0; font-size: 0.88rem;">
+            Metodología del Preparador Físico: Elige la sesión subida desde UBIKO para contrastar el rendimiento GPS real de los jugadores frente al 50%, 70% u 80% de las exigencias del partido oficial.
         </p>
     </div>
     """, unsafe_allow_html=True)
 
-    # Selector de Partido de Referencia para la Prescripción
+    # 1. Selectores de Sesión a Comparar y Partido de Referencia
+    cached_all_sessions = get_cached_sessions()
+    session_options_dict = {label: s_id for s_id, label in cached_all_sessions}
+
     ref_matches = get_cached_all_reference_matches(include_individual_peaks=True)
     match_dict = {m["label"]: m["session_id"] for m in ref_matches}
 
-    col_cfg0, col_cfg1 = st.columns([2, 1])
-    with col_cfg0:
-        curr_label = st.session_state.get("active_ref_match_label")
-        labels_list = list(match_dict.keys())
-        default_idx = labels_list.index(curr_label) if curr_label in labels_list else 0
-        sel_ref_label = st.selectbox(
-            "Partido de Referencia (Base 100%):",
-            labels_list,
-            index=default_idx,
-            help="Selecciona sobre qué partido oficial se calcularán los porcentajes mínimos requeridos."
+    if not session_options_dict:
+        st.warning("No hay sesiones en la base de datos para comparar.")
+        st.stop()
+
+    col_cs1, col_cs2 = st.columns([1.5, 1.5])
+    with col_cs1:
+        sess_labels = list(session_options_dict.keys())
+        default_sess_idx = 0
+        if selected_session_id:
+            for idx, (lbl, sid) in enumerate(session_options_dict.items()):
+                if sid == selected_session_id:
+                    default_sess_idx = idx
+                    break
+        sel_cmp_label = st.selectbox(
+            "⚽ Sesión Realizada a Comparar:",
+            sess_labels,
+            index=default_sess_idx,
+            key="cmp_session_select",
+            help="Selecciona la sesión de entrenamiento subida desde UBIKO para analizar el rendimiento."
         )
-        sel_ref_id = match_dict[sel_ref_label]
+        cmp_session_id = session_options_dict[sel_cmp_label]
 
-    with col_cfg1:
-        sel_day = st.selectbox(
-            "Día del Microciclo a Planificar:",
-            MICROCYCLE_DAYS,
-            index=0,
-            help="Selecciona el día para cargar las pautas de periodización táctica recomendadas."
+    with col_cs2:
+        match_labels = list(match_dict.keys())
+        curr_ref_label = st.session_state.get("active_ref_match_label")
+        default_ref_idx = match_labels.index(curr_ref_label) if curr_ref_label in match_labels else 0
+        sel_cmp_ref_label = st.selectbox(
+            "🏟️ Partido de Referencia (Base 100% Exigencias):",
+            match_labels,
+            index=default_ref_idx,
+            key="cmp_ref_match_select",
+            help="Selecciona sobre qué partido oficial se aplicarán los porcentajes del 50%, 70% y 80%."
+        )
+        cmp_ref_id = match_dict[sel_cmp_ref_label]
+
+    # Metadatos de la sesión seleccionada
+    summary_cmp = get_cached_session_summary(cmp_session_id)
+    if summary_cmp and "session" in summary_cmp:
+        s_obj = summary_cmp["session"]
+        m_list = summary_cmp.get("metrics", pd.DataFrame())
+        col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+        col_m1.info(f"📅 **Fecha:** {s_obj.date.strftime('%d/%m/%Y')}")
+        col_m2.info(f"⚡ **Microciclo:** {s_obj.microcycle_day}")
+        col_m3.info(f"⏱️ **Duración:** {s_obj.duration_minutes} min")
+        col_m4.info(f"👥 **Futbolistas con GPS:** {len(m_list)}")
+
+    st.write("")
+
+    # 2. Las 3 Pestañas Solicitadas: 50%, 70% y 80%
+    tab_50, tab_70, tab_80 = st.tabs([
+        "🟢 Comparación al 50% (Carga Baja)",
+        "🟡 Comparación al 70% (Carga Media)",
+        "🔴 Comparación al 80% (Carga Alta / Máx. Estímulo)"
+    ])
+
+    def render_level_tab_content(lvl_val: int, tab_title: str, tab_badge: str, tab_desc: str, border_col: str):
+        st.markdown(f"""
+        <div style="background: rgba(30, 41, 59, 0.65); padding: 14px 18px; border-radius: 10px; border-left: 5px solid {border_col}; margin-bottom: 16px;">
+            <div style="font-weight: bold; color: #F8FAFC; font-size: 1.05rem;">{tab_badge} — {tab_title}</div>
+            <div style="margin-top: 4px; color: #94A3B8; font-size: 0.85rem;">{tab_desc}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        df_level = get_cached_post_session_multivariable_table(cmp_session_id, cmp_ref_id, level=lvl_val)
+
+        if df_level.empty:
+            st.warning(f"No hay datos de telemetría de futbolistas para calcular la comparativa al {lvl_val}%.")
+            return
+
+        # Métricas de resumen KPI
+        tot_players = len(df_level)
+        n_opt = len(df_level[df_level["Estado"] == "Óptimo"])
+        n_def = len(df_level[df_level["Estado"] == "Déficit"])
+        n_sob = len(df_level[df_level["Estado"] == "Sobre-estímulo"])
+        mean_dt_pct = df_level["% DT"].mean() if "% DT" in df_level.columns else 0.0
+
+        k1, k2, k3, k4, k5 = st.columns(5)
+        with k1:
+            st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-title">Evaluados</div>
+                <div class="metric-value">{tot_players}</div>
+                <div class="metric-subtitle">Jugadores en sesión</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with k2:
+            st.markdown(f"""
+            <div class="metric-card" style="border-left: 4px solid #10B981;">
+                <div class="metric-title">🟢 Cumplieron Objetivo</div>
+                <div class="metric-value" style="color: #10B981;">{n_opt}</div>
+                <div class="metric-subtitle">En rango óptimo (80-115%)</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with k3:
+            st.markdown(f"""
+            <div class="metric-card" style="border-left: 4px solid #EF4444;">
+                <div class="metric-title">🔴 En Déficit</div>
+                <div class="metric-value" style="color: #EF4444;">{n_def}</div>
+                <div class="metric-subtitle">< 80% de meta {lvl_val}%</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with k4:
+            st.markdown(f"""
+            <div class="metric-card" style="border-left: 4px solid #F59E0B;">
+                <div class="metric-title">🟠 Sobre-estímulo</div>
+                <div class="metric-value" style="color: #F59E0B;">{n_sob}</div>
+                <div class="metric-subtitle">> 115% de meta {lvl_val}%</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with k5:
+            st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-title">% Cumpl. Medio DT</div>
+                <div class="metric-value">{mean_dt_pct:.1f}%</div>
+                <div class="metric-subtitle">Media Real vs Meta {lvl_val}%</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.write("")
+
+        # Filtros de tabla
+        col_f1, col_f2 = st.columns([1.2, 1.2])
+        with col_f1:
+            pos_filter = st.multiselect(
+                "Filtrar por Demarcación:",
+                ["CENTRAL", "LATERAL", "MEDIOCENTRO", "EXTREMO", "DELANTERO", "PORTERO"],
+                default=["CENTRAL", "LATERAL", "MEDIOCENTRO", "EXTREMO", "DELANTERO"],
+                key=f"cmp_pos_filter_{lvl_val}"
+            )
+        with col_f2:
+            status_filter = st.selectbox(
+                "Filtrar por Estado de Estímulo:",
+                ["Todos", "🟢 Cumplieron Objetivo", "🔴 En Déficit", "🟠 Sobre-estímulo"],
+                key=f"cmp_status_filter_{lvl_val}"
+            )
+
+        # Aplicar filtros
+        df_view = df_level[df_level["Posición"].isin(pos_filter)].copy()
+        if status_filter == "🟢 Cumplieron Objetivo":
+            df_view = df_view[df_view["Estado"] == "Óptimo"]
+        elif status_filter == "🔴 En Déficit":
+            df_view = df_view[df_view["Estado"] == "Déficit"]
+        elif status_filter == "🟠 Sobre-estímulo":
+            df_view = df_view[df_view["Estado"] == "Sobre-estímulo"]
+
+        # Funciones de estilo
+        def highlight_diag(val):
+            s = str(val)
+            if "Déficit" in s or "🔴" in s:
+                return "background-color: rgba(239, 68, 68, 0.25); color: #FCA5A5; font-weight: bold;"
+            elif "Sobre" in s or "🟠" in s or "Exceso" in s:
+                return "background-color: rgba(245, 158, 11, 0.25); color: #FCD34D; font-weight: bold;"
+            elif "Cumplido" in s or "🟢" in s or "Óptimo" in s:
+                return "background-color: rgba(16, 185, 129, 0.25); color: #6EE7B7; font-weight: bold;"
+            return ""
+
+        def highlight_comp_cell(val):
+            try:
+                v = float(val)
+                if v < 80.0:
+                    return "background-color: rgba(239, 68, 68, 0.20); color: #F87171; font-weight: bold;"
+                elif v > 115.0:
+                    return "background-color: rgba(245, 158, 11, 0.20); color: #FBBF24; font-weight: bold;"
+                else:
+                    return "background-color: rgba(16, 185, 129, 0.20); color: #34D399; font-weight: bold;"
+            except Exception:
+                return ""
+
+        display_cols = [
+            "Dorsal", "Jugador", "Posición",
+            "DT Real (km)", "DT Meta (km)", "% DT",
+            "HSR Real (m)", "HSR Meta (m)", "% HSR",
+            "Sprint Real (m)", "Sprint Meta (m)", "% Sprint",
+            "ACC Real", "ACC Meta", "% ACC",
+            "DCC Real", "DCC Meta", "% DCC",
+            "Diagnóstico de Estímulo"
+        ]
+        available_cols = [c for c in display_cols if c in df_view.columns]
+
+        st.dataframe(
+            df_view[available_cols].style
+            .format({
+                "DT Real (km)": "{:.2f}",
+                "DT Meta (km)": "{:.2f}",
+                "% DT": "{:.1f}%",
+                "HSR Real (m)": "{:.0f}",
+                "HSR Meta (m)": "{:.0f}",
+                "% HSR": "{:.1f}%",
+                "Sprint Real (m)": "{:.0f}",
+                "Sprint Meta (m)": "{:.0f}",
+                "% Sprint": "{:.1f}%",
+                "% ACC": "{:.1f}%",
+                "% DCC": "{:.1f}%"
+            })
+            .map(highlight_diag, subset=["Diagnóstico de Estímulo"])
+            .map(highlight_comp_cell, subset=["% DT", "% HSR", "% Sprint", "% ACC", "% DCC"]),
+            width="stretch",
+            hide_index=True
         )
 
-    day_meta = MICROCYCLE_MATCH_TARGETS.get(sel_day, MICROCYCLE_MATCH_TARGETS.get("MD-4", {}))
-    def_td = float(day_meta.get("pct_td", 0.60) * 100.0)
-    def_hsr = float(day_meta.get("pct_hsr", 0.40) * 100.0)
-    def_sprint = float(day_meta.get("pct_sprint", 0.35) * 100.0)
-    def_eff = float(day_meta.get("pct_eff", 0.90) * 100.0)
-    key_metric_label = day_meta.get("key_label", "Métrica clave")
+        col_dl1, col_dl2, col_dl3 = st.columns([2, 1.2, 0.8])
+        with col_dl2:
+            try:
+                from src.services.excel_exporter import export_dataframe_to_formatted_excel
+                excel_data = export_dataframe_to_formatted_excel(
+                    df=df_view[available_cols],
+                    sheet_name=f"Comparativa {lvl_val}%",
+                    header_color="1E3A8A"
+                )
+                st.download_button(
+                    label=f"📊 Descargar Excel {lvl_val}% (.xlsx)",
+                    data=excel_data,
+                    file_name=f"comparativa_sesion_{lvl_val}pct_{cmp_session_id}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    type="primary",
+                    use_container_width=True,
+                    key=f"btn_dl_xl_{lvl_val}"
+                )
+            except Exception as e_xl:
+                st.caption(f"Aviso Excel: {e_xl}")
 
-    st.info(
-        f"⚡ **Enfoque de Periodización ({sel_day}):** {day_meta.get('description', '')} | "
-        f"Métrica crítica diana: **{key_metric_label}**."
-    )
+        with col_dl3:
+            csv_data = df_view[available_cols].to_csv(index=False, sep=";").encode("utf-8-sig")
+            st.download_button(
+                label="📥 CSV",
+                data=csv_data,
+                file_name=f"comparativa_sesion_{lvl_val}pct_{cmp_session_id}.csv",
+                mime="text/csv",
+                use_container_width=True,
+                key=f"btn_dl_csv_{lvl_val}"
+            )
 
-    active_lvl = st.session_state.get(f"active_load_level_{sel_day}", 80 if sel_day in ["MD-4", "MD-3", "MD-2"] else 50)
-    cur_preset = get_load_level_preset(active_lvl, sel_day)
+    with tab_50:
+        render_level_tab_content(
+            50,
+            "Nivel 50% de Exigencias de Partido",
+            "🟢 Carga Baja / Regenerativa",
+            "Estímulo objetivo al 50% del partido oficial. Adecuado para sesiones regenerativas (MD+1), post-partido o compensatorios de futbolistas con pocos minutos.",
+            "#10B981"
+        )
 
-    # Asegurar que los valores en session_state estén sincronizados con el preset
-    if f"pre_slider_td_{sel_day}" not in st.session_state:
-        st.session_state[f"pre_slider_td_{sel_day}"] = cur_preset["pct_td"]
-    if f"pre_slider_hsr_{sel_day}" not in st.session_state:
-        st.session_state[f"pre_slider_hsr_{sel_day}"] = cur_preset["pct_hsr"]
-    if f"pre_slider_sprint_{sel_day}" not in st.session_state:
-        st.session_state[f"pre_slider_sprint_{sel_day}"] = cur_preset["pct_sprint"]
-    if f"pre_slider_eff_{sel_day}" not in st.session_state:
-        st.session_state[f"pre_slider_eff_{sel_day}"] = cur_preset["pct_eff"]
+    with tab_70:
+        render_level_tab_content(
+            70,
+            "Nivel 70% de Exigencias de Partido",
+            "🟡 Carga Media / Estándar",
+            "Estímulo objetivo al 70% del partido oficial. Carga media equilibrada que busca adaptación y estímulo sin generar fatiga residual previa al fin de semana.",
+            "#F59E0B"
+        )
 
-    st.markdown("#### ⚡ Selector Rápido de Nivel de Carga (Prescripción P.F.)")
-    st.caption("Fija la intensidad objetivo sobre el Partido de Máxima Exigencia (100%) para calcular al instante las metas de los 26 jugadores:")
+    with tab_80:
+        render_level_tab_content(
+            80,
+            "Nivel 80% de Exigencias de Partido",
+            "🔴 Carga Alta / Máxima Estimulación",
+            "Estímulo objetivo al 80% del partido oficial. Día de máxima sobrecarga neuromuscular y metabólica semanal (MD-4 en aceleraciones, MD-3 en volumen, MD-2 en velocidad).",
+            "#EF4444"
+        )
 
-    col_btn_50, col_btn_70, col_btn_80 = st.columns(3)
+    st.write("")
+    st.divider()
 
-    with col_btn_50:
-        btn_type_50 = "primary" if active_lvl == 50 else "secondary"
-        if st.button("🟢 Nivel 50%\n(Carga baja / Regenerativo)", key=f"btn_lvl_50_{sel_day}", use_container_width=True, type=btn_type_50, help="50% de intensidad objetivo sobre el partido de referencia."):
-            st.session_state[f"active_load_level_{sel_day}"] = 50
-            p50 = get_load_level_preset(50, sel_day)
-            st.session_state[f"pre_slider_td_{sel_day}"] = p50["pct_td"]
-            st.session_state[f"pre_slider_hsr_{sel_day}"] = p50["pct_hsr"]
-            st.session_state[f"pre_slider_sprint_{sel_day}"] = p50["pct_sprint"]
-            st.session_state[f"pre_slider_eff_{sel_day}"] = p50["pct_eff"]
-            st.rerun()
+    # Desplegable secundario con la calculadora previa por si desean consultar o fijar objetivos teóricos en TargetLoad
+    with st.expander("🛠️ Calculadora y Prescripción Pre-Sesión (Opcional - Objetivos Teóricos Previos)", expanded=False):
+        st.caption("Si deseas planificar metas teóricas antes de realizar la sesión y guardarlas en la base de datos (TargetLoad), puedes hacerlo aquí:")
 
-    with col_btn_70:
-        btn_type_70 = "primary" if active_lvl == 70 else "secondary"
-        if st.button("🟡 Nivel 70%\n(Carga media)", key=f"btn_lvl_70_{sel_day}", use_container_width=True, type=btn_type_70, help="70% de intensidad objetivo sobre el partido de referencia."):
-            st.session_state[f"active_load_level_{sel_day}"] = 70
-            p70 = get_load_level_preset(70, sel_day)
-            st.session_state[f"pre_slider_td_{sel_day}"] = p70["pct_td"]
-            st.session_state[f"pre_slider_hsr_{sel_day}"] = p70["pct_hsr"]
-            st.session_state[f"pre_slider_sprint_{sel_day}"] = p70["pct_sprint"]
-            st.session_state[f"pre_slider_eff_{sel_day}"] = p70["pct_eff"]
-            st.rerun()
+        col_pre_day, col_pre_lvl = st.columns(2)
+        with col_pre_day:
+            sel_day = st.selectbox(
+                "Día del Microciclo a Planificar:",
+                MICROCYCLE_DAYS,
+                index=0,
+                key="pre_expander_day",
+                help="Selecciona el día para cargar las pautas de periodización táctica recomendadas."
+            )
+        with col_pre_lvl:
+            active_lvl = st.session_state.get(f"active_load_level_{sel_day}", 80 if sel_day in ["MD-4", "MD-3", "MD-2"] else 50)
+            cur_preset = get_load_level_preset(active_lvl, sel_day)
+            st.info(f"Nivel Preset: **{cur_preset['badge']}** — {cur_preset['title']}")
 
-    with col_btn_80:
-        btn_type_80 = "primary" if active_lvl == 80 else "secondary"
-        if st.button("🔴 Nivel 80%\n(Carga alta / Máx. estímulo)", key=f"btn_lvl_80_{sel_day}", use_container_width=True, type=btn_type_80, help="80% de intensidad objetivo sobre el partido de referencia."):
-            st.session_state[f"active_load_level_{sel_day}"] = 80
-            p80 = get_load_level_preset(80, sel_day)
-            st.session_state[f"pre_slider_td_{sel_day}"] = p80["pct_td"]
-            st.session_state[f"pre_slider_hsr_{sel_day}"] = p80["pct_hsr"]
-            st.session_state[f"pre_slider_sprint_{sel_day}"] = p80["pct_sprint"]
-            st.session_state[f"pre_slider_eff_{sel_day}"] = p80["pct_eff"]
-            st.rerun()
-
-    crit_pct_display = cur_preset["pct_eff"] if sel_day == "MD-4" else (cur_preset["pct_td"] if sel_day == "MD-3" else cur_preset["pct_hsr"])
-    st.info(
-        f"🎯 **Nivel Activo ({sel_day}):** **{cur_preset['badge']}** — {cur_preset['title']} | "
-        f"Métrica diana ({key_metric_label}): **{crit_pct_display:.0f}%** del partido de máxima exigencia."
-    )
-
-    with st.expander("🛠️ Ajuste Fino Manual de Porcentajes por Métrica (Opcional)", expanded=False):
-        st.caption("Permite al cuerpo técnico calibrar individualmente los porcentajes de cada variable si se desea:")
         col_sl1, col_sl2, col_sl3, col_sl4 = st.columns(4)
         with col_sl1:
             pct_td_input = st.slider(
                 "🏃 % Distancia Total (DT):",
                 min_value=20.0, max_value=120.0,
+                value=float(cur_preset["pct_td"]),
                 step=1.0,
-                key=f"pre_slider_td_{sel_day}",
-                help="Porcentaje de volumen de carrera respecto al partido."
+                key=f"pre_sl_td_{sel_day}"
             )
         with col_sl2:
             pct_hsr_input = st.slider(
                 "⚡ % HSR (>21 km/h):",
                 min_value=10.0, max_value=120.0,
+                value=float(cur_preset["pct_hsr"]),
                 step=1.0,
-                key=f"pre_slider_hsr_{sel_day}",
-                help="Porcentaje de carrera de alta velocidad respecto al partido."
+                key=f"pre_sl_hsr_{sel_day}"
             )
         with col_sl3:
             pct_sprint_input = st.slider(
                 "🚀 % Metros en Sprint:",
                 min_value=10.0, max_value=120.0,
+                value=float(cur_preset["pct_sprint"]),
                 step=1.0,
-                key=f"pre_slider_sprint_{sel_day}",
-                help="Porcentaje de sprint (>25.2 km/h) respecto al partido."
+                key=f"pre_sl_sp_{sel_day}"
             )
         with col_sl4:
             pct_eff_input = st.slider(
                 "💥 % #ACC / #DCC EXPL:",
                 min_value=10.0, max_value=120.0,
+                value=float(cur_preset["pct_eff"]),
                 step=1.0,
-                key=f"pre_slider_eff_{sel_day}",
-                help="Porcentaje de aceleraciones y desaceleraciones explosivas respecto al partido."
+                key=f"pre_sl_eff_{sel_day}"
             )
 
-    pct_td_val = float(st.session_state.get(f"pre_slider_td_{sel_day}", cur_preset["pct_td"]))
-    pct_hsr_val = float(st.session_state.get(f"pre_slider_hsr_{sel_day}", cur_preset["pct_hsr"]))
-    pct_sprint_val = float(st.session_state.get(f"pre_slider_sprint_{sel_day}", cur_preset["pct_sprint"]))
-    pct_eff_val = float(st.session_state.get(f"pre_slider_eff_{sel_day}", cur_preset["pct_eff"]))
-
-    # Calcular prescripción pre-sesión en la estructura exacta del Excel
-    presc_result = get_cached_excel_pre_session_prescription(
-        sel_ref_id, sel_day, pct_td_val, pct_hsr_val, pct_sprint_val, pct_eff_val
-    )
-    df_presc_disp = presc_result.get("df_display", pd.DataFrame())
-    team_tgts = presc_result.get("team_targets", {})
-
-    st.write("")
-    col_tb_head, col_tb_btn = st.columns([3, 1])
-    with col_tb_head:
-        st.subheader("Metas Cuantitativas Mínimas Requeridas (Estructura Excel P.F.)")
-    with col_tb_btn:
-        if st.button("💾 Guardar / Fijar Prescripción", type="primary", use_container_width=True, help="Guarda estos objetivos en la base de datos para la evaluación de las sesiones."):
-            with get_db() as db:
-                success_save = save_pre_session_prescription(
-                    db, sel_day, pct_td_val, pct_hsr_val, pct_eff_val
-                )
-            if success_save:
-                st.cache_data.clear()
-                st.toast(f"¡Prescripción para {sel_day} fijada en base de datos!", icon="💾")
-                st.success(f"✅ Prescripción para **{sel_day}** actualizada correctamente en la base de datos (TargetLoad).")
-                st.info(
-                    "📍 **¿Dónde verás la comparación con la realidad tras cargar la sesión de Ubiko?**\n\n"
-                    "1. Dirígete a la pestaña **📊 Panel de Sesión & Semáforo** (la primera en el menú lateral).\n"
-                    "2. En el desplegable de la barra lateral **'Sesión a evaluar'**, selecciona la sesión importada.\n"
-                    "3. Verás de forma automática:\n"
-                    "   - **Clasificación en 3 Estados** (🟢 Listo/Óptimo, 🔴 Déficit a compensar, 🟠 Sobre-estímulo).\n"
-                    "   - **Tabla Semáforo Individual**: % de cumplimiento de DT, HSR y Aceleraciones.\n"
-                    "   - **📋 Ver Comparativa Completa Real vs. Mínimo Prescrito (Metodología Excel P.F.)**: Comparativa variable a variable (Distancia Real vs Meta, HSR Real vs Meta, Sprint Real vs Meta, etc.)."
-                )
-
-    if not df_presc_disp.empty:
-        col_pf1, col_pf2 = st.columns([1, 1])
-        with col_pf1:
-            filtro_pre_pos = st.multiselect(
-                "Filtrar por Demarcación:",
-                ["CENTRAL", "LATERAL", "MEDIOCENTRO", "EXTREMO", "DELANTERO"],
-                default=["CENTRAL", "LATERAL", "MEDIOCENTRO", "EXTREMO", "DELANTERO"],
-                key="pre_excel_pos_filter"
-            )
-        with col_pf2:
-            st.caption(
-                f"📌 Metas calculadas a partir de **{sel_ref_label}**. "
-                f"Los jugadores con base en **Partido** aplican los porcentajes fijados ({pct_td_val:.0f}% DT, {pct_hsr_val:.0f}% HSR, {pct_sprint_val:.0f}% Sprint, {pct_eff_val:.0f}% AC.E); "
-                f"los jugadores con base en **Entrenamiento** alcanzan una meta proporcional al tipo de sesión planificada."
-            )
-
-        mask_presc = (
-            df_presc_disp["POSICIÓN"].isin(filtro_pre_pos) |
-            (df_presc_disp["_row_type"] == "team")
+        presc_result = get_cached_excel_pre_session_prescription(
+            cmp_ref_id, sel_day, pct_td_input, pct_hsr_input, pct_sprint_input, pct_eff_input
         )
-        df_p_view = df_presc_disp[mask_presc].copy()
-        cols_p_clean = [c for c in df_p_view.columns if not c.startswith("_")]
+        df_presc_disp = presc_result.get("df_display", pd.DataFrame())
 
-        def style_excel_presc_table(row):
-            row_type = row.get("_row_type", "")
-            if row_type == "team" or "EQUIPO" in str(row.get("POSICIÓN", "")):
-                return ["background-color: rgba(37, 99, 235, 0.28); color: #93C5FD; font-weight: bold; border-top: 2px solid #3B82F6;"] * len(row)
-            return [""] * len(row)
+        col_tb_head, col_tb_btn = st.columns([3, 1])
+        with col_tb_btn:
+            if st.button("💾 Fijar Objetivos en BD", type="primary", use_container_width=True, key=f"btn_save_pre_{sel_day}"):
+                with get_db() as db:
+                    success_save = save_pre_session_prescription(
+                        db, sel_day, pct_td_input, pct_hsr_input, pct_eff_input
+                    )
+                if success_save:
+                    st.cache_data.clear()
+                    st.toast(f"¡Prescripción para {sel_day} fijada en base de datos!", icon="💾")
+                    st.success(f"✅ Prescripción para **{sel_day}** actualizada en la base de datos (TargetLoad).")
 
-        st.dataframe(
-            df_p_view.style.apply(style_excel_presc_table, axis=1),
-            column_order=cols_p_clean,
-            width="stretch",
-            hide_index=True
-        )
-
-        col_dlp1, col_dlp2, col_dlp3 = st.columns([1.8, 1.3, 0.9])
-        with col_dlp2:
-            try:
-                from src.services.excel_exporter import export_dataframe_to_formatted_excel
-                excel_presc = export_dataframe_to_formatted_excel(
-                    df=df_p_view,
-                    sheet_name=f"Planificación {sel_day}",
-                    header_color="1E3A8A"
-                )
-                st.download_button(
-                    label="📊 Descargar Excel Oficial (.xlsx)",
-                    data=excel_presc,
-                    file_name=f"planificacion_{sel_day}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    type="primary",
-                    use_container_width=True,
-                    help="Descarga el libro de Excel oficial (.xlsx) con los colores, tipografía, bordes y anchos de columna del preparador físico."
-                )
-            except Exception as e_xl:
-                st.error(f"Aviso generando Excel: {e_xl}")
-
-        with col_dlp3:
-            csv_presc = df_p_view[cols_p_clean].to_csv(index=False, sep=";").encode("utf-8-sig")
-            st.download_button(
-                "📥 Descargar CSV",
-                data=csv_presc,
-                file_name=f"planificacion_{sel_day}.csv",
-                mime="text/csv",
-                use_container_width=True
-            )
-    else:
-        st.warning("No hay datos de referencia disponibles para calcular la prescripción.")
+        if not df_presc_disp.empty:
+            cols_p_clean = [c for c in df_presc_disp.columns if not c.startswith("_")]
+            st.dataframe(df_presc_disp[cols_p_clean], width="stretch", hide_index=True)
 
 
 # ==========================================

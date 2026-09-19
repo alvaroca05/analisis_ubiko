@@ -1894,7 +1894,9 @@ def get_post_session_multivariable_table(
     db: Session,
     session_id: int,
     reference_session_id: Optional[int] = None,
-    club_id: int = DEFAULT_CLUB_ID
+    club_id: int = DEFAULT_CLUB_ID,
+    level: Optional[int] = None,
+    custom_pcts: Optional[Dict[str, float]] = None
 ) -> pd.DataFrame:
     """
     Genera la tabla comparativa post-sesión de UBIKO:
@@ -1902,10 +1904,7 @@ def get_post_session_multivariable_table(
     * #ACC EXPL y #DCC EXPL (Crítica en MD-4)
     * Distancia Total (km) (Crítica en MD-3)
     * HSR (m) y Metros en Sprint (Crítica en MD-2)
-    Aplica el semáforo multivariable:
-    - <80%: 🔴 Déficit [Métrica]
-    - 80%-110%: 🟢 Óptimo
-    - >115%: 🟠 Sobrecarga / Sobre-estímulo
+    Aplica el semáforo multivariable según el nivel objetivo (50%, 70%, 80% de partido o día del microciclo).
     """
     sess = db.query(TrainingSession).filter(TrainingSession.id == session_id, TrainingSession.club_id == club_id).first()
     if not sess:
@@ -1913,10 +1912,21 @@ def get_post_session_multivariable_table(
 
     day = sess.microcycle_day.upper().strip()
     day_cfg = MICROCYCLE_MATCH_TARGETS.get(day, MICROCYCLE_MATCH_TARGETS.get("MD-3", {}))
-    pct_td = float(day_cfg.get("pct_td", 0.80) * 100.0)
-    pct_hsr = float(day_cfg.get("pct_hsr", 0.65) * 100.0)
-    pct_sprint = float(day_cfg.get("pct_sprint", 0.50) * 100.0)
-    pct_eff = float(day_cfg.get("pct_eff", 0.65) * 100.0)
+    if custom_pcts:
+        pct_td = float(custom_pcts.get("pct_td", float(level or 70)))
+        pct_hsr = float(custom_pcts.get("pct_hsr", float(level or 70)))
+        pct_sprint = float(custom_pcts.get("pct_sprint", float(level or 70)))
+        pct_eff = float(custom_pcts.get("pct_eff", float(level or 70)))
+    elif level is not None:
+        pct_td = float(level)
+        pct_hsr = float(level)
+        pct_sprint = float(level)
+        pct_eff = float(level)
+    else:
+        pct_td = float(day_cfg.get("pct_td", 0.80) * 100.0)
+        pct_hsr = float(day_cfg.get("pct_hsr", 0.65) * 100.0)
+        pct_sprint = float(day_cfg.get("pct_sprint", 0.50) * 100.0)
+        pct_eff = float(day_cfg.get("pct_eff", 0.65) * 100.0)
 
     # 1. Obtener prescripción meta para el día
     presc = calculate_excel_pre_session_prescription(
@@ -1992,9 +2002,24 @@ def get_post_session_multivariable_table(
         comp_eff = ((real_acc + real_dec) / (tgt["min_acc"] + tgt["min_dec"]) * 100.0) if (tgt["min_acc"] + tgt["min_dec"]) > 0 else 0.0
 
         # Diagnóstico multivariable
-        diag, status, color_hex, color_lbl = evaluate_multivariable_deficit(
-            day, comp_td, comp_hsr, comp_eff
-        )
+        if level is not None:
+            avg_comp = (comp_td + comp_hsr + comp_eff) / 3.0
+            if avg_comp < 80.0:
+                diag = f"🔴 Déficit ({avg_comp:.0f}% de meta {level}%)"
+                status = "Déficit"
+                color_hex = "#EF4444"
+            elif avg_comp > 115.0:
+                diag = f"🟠 Sobre-estímulo ({avg_comp:.0f}% de meta {level}%)"
+                status = "Sobre-estímulo"
+                color_hex = "#F59E0B"
+            else:
+                diag = f"🟢 Cumplido ({avg_comp:.0f}%)"
+                status = "Óptimo"
+                color_hex = "#10B981"
+        else:
+            diag, status, color_hex, color_lbl = evaluate_multivariable_deficit(
+                day, comp_td, comp_hsr, comp_eff
+            )
 
         comparison_rows.append({
             "Dorsal": m.dorsal,
