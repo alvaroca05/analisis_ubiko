@@ -38,6 +38,9 @@ try:
     )
     from src.database.connection import get_db, init_db
     from src.database.models import Player, TrainingSession, PlayerMetric, TargetLoad, PlayerMatchPeak
+    import importlib
+    import src.services.analytics
+    importlib.reload(src.services.analytics)
     from src.services.analytics import (
         calculate_session_summary,
         calculate_ewma_acwr,
@@ -362,7 +365,13 @@ def get_cached_excel_pre_session_prescription(
 def get_cached_post_session_multivariable_table(session_id: int, reference_session_id: Optional[int], level: Optional[int] = None):
     """Cachea la tabla de semáforo de déficit multivariable post-sesión."""
     with get_db() as db:
-        return get_post_session_multivariable_table(db, session_id, reference_session_id, level=level)
+        import importlib
+        import src.services.analytics as _analytics
+        try:
+            return _analytics.get_post_session_multivariable_table(db, session_id, reference_session_id, level=level)
+        except TypeError:
+            importlib.reload(_analytics)
+            return _analytics.get_post_session_multivariable_table(db, session_id, reference_session_id, level=level)
 
 
 @st.cache_data(ttl=600, show_spinner="Cargando...")
