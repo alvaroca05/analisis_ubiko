@@ -1413,9 +1413,25 @@ elif menu in ["📋 Planificación & Comparativa (50/70/80%)", "📋 Planificaci
         col_m3.info(f"⏱️ **Duración:** {s_obj.duration_minutes} min")
         col_m4.info(f"👥 **Futbolistas con GPS:** {len(m_list)}")
 
+    # 2. Filtros Interactivos (colocados arriba de las pestañas)
+    col_f1, col_f2 = st.columns([1.2, 1.2])
+    with col_f1:
+        pos_filter = st.multiselect(
+            "Filtrar por Demarcación:",
+            ["CENTRAL", "LATERAL", "MEDIOCENTRO", "EXTREMO", "DELANTERO", "PORTERO"],
+            default=["CENTRAL", "LATERAL", "MEDIOCENTRO", "EXTREMO", "DELANTERO"],
+            key="cmp_global_pos_filter"
+        )
+    with col_f2:
+        status_filter = st.selectbox(
+            "Filtrar por Estado de Estímulo:",
+            ["Todos", "🟢 Cumplieron Objetivo", "🔴 En Déficit", "🟠 Sobre-estímulo"],
+            key="cmp_global_status_filter"
+        )
+
     st.write("")
 
-    # 2. Las 3 Pestañas Solicitadas: 50%, 70% y 80%
+    # 3. Elección de Pestañas (debajo de los filtros): 50%, 70% y 80%
     tab_50, tab_70, tab_80 = st.tabs([
         "🟢 Comparación al 50% (Carga Baja)",
         "🟡 Comparación al 70% (Carga Media)",
@@ -1436,12 +1452,21 @@ elif menu in ["📋 Planificación & Comparativa (50/70/80%)", "📋 Planificaci
             st.warning(f"No hay datos de telemetría de futbolistas para calcular la comparativa al {lvl_val}%.")
             return
 
+        # Aplicar filtros
+        df_view = df_level[df_level["Posición"].isin(pos_filter)].copy()
+        if status_filter == "🟢 Cumplieron Objetivo":
+            df_view = df_view[df_view["Estado"] == "Óptimo"]
+        elif status_filter == "🔴 En Déficit":
+            df_view = df_view[df_view["Estado"] == "Déficit"]
+        elif status_filter == "🟠 Sobre-estímulo":
+            df_view = df_view[df_view["Estado"] == "Sobre-estímulo"]
+
         # Métricas de resumen KPI
         tot_players = len(df_level)
         n_opt = len(df_level[df_level["Estado"] == "Óptimo"])
         n_def = len(df_level[df_level["Estado"] == "Déficit"])
         n_sob = len(df_level[df_level["Estado"] == "Sobre-estímulo"])
-        mean_dt_pct = df_level["% DT"].mean() if "% DT" in df_level.columns else 0.0
+        mean_dt_pct = df_view["% DT"].mean() if ("% DT" in df_view.columns and not df_view.empty) else 0.0
 
         k1, k2, k3, k4, k5 = st.columns(5)
         with k1:
@@ -1481,36 +1506,11 @@ elif menu in ["📋 Planificación & Comparativa (50/70/80%)", "📋 Planificaci
             <div class="metric-card">
                 <div class="metric-title">% Cumpl. Medio DT</div>
                 <div class="metric-value">{mean_dt_pct:.1f}%</div>
-                <div class="metric-subtitle">Media Real vs Meta {lvl_val}%</div>
+                <div class="metric-subtitle">Media filtrada vs {lvl_val}%</div>
             </div>
             """, unsafe_allow_html=True)
 
         st.write("")
-
-        # Filtros de tabla
-        col_f1, col_f2 = st.columns([1.2, 1.2])
-        with col_f1:
-            pos_filter = st.multiselect(
-                "Filtrar por Demarcación:",
-                ["CENTRAL", "LATERAL", "MEDIOCENTRO", "EXTREMO", "DELANTERO", "PORTERO"],
-                default=["CENTRAL", "LATERAL", "MEDIOCENTRO", "EXTREMO", "DELANTERO"],
-                key=f"cmp_pos_filter_{lvl_val}"
-            )
-        with col_f2:
-            status_filter = st.selectbox(
-                "Filtrar por Estado de Estímulo:",
-                ["Todos", "🟢 Cumplieron Objetivo", "🔴 En Déficit", "🟠 Sobre-estímulo"],
-                key=f"cmp_status_filter_{lvl_val}"
-            )
-
-        # Aplicar filtros
-        df_view = df_level[df_level["Posición"].isin(pos_filter)].copy()
-        if status_filter == "🟢 Cumplieron Objetivo":
-            df_view = df_view[df_view["Estado"] == "Óptimo"]
-        elif status_filter == "🔴 En Déficit":
-            df_view = df_view[df_view["Estado"] == "Déficit"]
-        elif status_filter == "🟠 Sobre-estímulo":
-            df_view = df_view[df_view["Estado"] == "Sobre-estímulo"]
 
         # Funciones de estilo
         def highlight_diag(val):
