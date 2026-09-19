@@ -47,6 +47,26 @@ UBIKO_URL = os.getenv("UBIKO_URL", "https://admin.ubikosports.com/team/sessions"
 UBIKO_USER = os.getenv("UBIKO_USER", "alvarocab0510@gmail.com")
 UBIKO_PASSWORD = os.getenv("UBIKO_PASSWORD", "ubikopuente26")
 SESSION_STORAGE = DATA_DIR / "ubiko_session_auth.json"
+FALLBACK_SESSION_STORAGE = Path(__file__).resolve().parent / "src" / "utils" / "ubiko_auth_template.json"
+
+
+def ensure_session_storage() -> Path:
+    """
+    Asegura que exista un archivo de sesión válido en DATA_DIR.
+    Si no existe (por ejemplo en el PC del preparador físico o en la nube),
+    lo inicializa automáticamente a partir de la plantilla preautenticada del repositorio.
+    """
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        if not SESSION_STORAGE.exists() and FALLBACK_SESSION_STORAGE.exists():
+            import shutil
+            shutil.copy2(FALLBACK_SESSION_STORAGE, SESSION_STORAGE)
+            print(f"[UBIKO] Sesión inicializada automáticamente desde {FALLBACK_SESSION_STORAGE.name}")
+    except Exception as e:
+        print(f"[UBIKO] Aviso al preparar archivo de sesión: {e}")
+    return SESSION_STORAGE if SESSION_STORAGE.exists() else FALLBACK_SESSION_STORAGE
+
+
 # Cargar credenciales desde st.secrets si está disponible (entorno Streamlit Cloud)
 try:
     import streamlit as _st
@@ -256,10 +276,12 @@ class UbikoSyncService:
     def _execute_session_fetch(self, browser, force: bool = False, min_date: Optional[date] = None) -> Dict[str, Any]:
         # Configurar viewport a 1920x1080 para que la tabla y todos los botones de acción sean visibles
         context_kwargs = {"accept_downloads": True, "viewport": {"width": 1920, "height": 1080}}
-        if SESSION_STORAGE.exists():
+        auth_file = ensure_session_storage()
+        if auth_file and auth_file.exists():
             try:
-                context = browser.new_context(storage_state=str(SESSION_STORAGE), **context_kwargs)
-            except Exception:
+                context = browser.new_context(storage_state=str(auth_file), **context_kwargs)
+            except Exception as e_ctx:
+                print(f"[UBIKO] Aviso al cargar estado de sesión ({e_ctx}). Iniciando sesión limpia.")
                 context = browser.new_context(**context_kwargs)
         else:
             context = browser.new_context(**context_kwargs)
@@ -269,7 +291,7 @@ class UbikoSyncService:
         try:
             # 1. Navegar a UBIKO
             print(f"[UBIKO] Accediendo a: {self.base_url}")
-            page.goto(self.base_url, wait_until="domcontentloaded", timeout=25000)
+            page.goto(self.base_url, wait_until="domcontentloaded", timeout=20000)
             time.sleep(2)
 
             # 2. Login automático si se presentan campos de login
@@ -281,14 +303,26 @@ class UbikoSyncService:
                     pass_input = page.wait_for_selector('input[type="password"]', timeout=8000)
                     if user_input and pass_input:
                         print(f"[UBIKO] Introduciendo credenciales para: {UBIKO_USER}")
-                        user_input.fill(UBIKO_USER)
-                        pass_input.fill(UBIKO_PASSWORD)
+                        try:
+                            user_input.fill("")
+                            user_input.press_sequentially(UBIKO_USER, delay=15)
+                            user_input.evaluate("el => el.dispatchEvent(new Event('input', { bubbles: true }))")
+                            user_input.evaluate("el => el.dispatchEvent(new Event('change', { bubbles: true }))")
+
+                            pass_input.fill("")
+                            pass_input.press_sequentially(UBIKO_PASSWORD, delay=15)
+                            pass_input.evaluate("el => el.dispatchEvent(new Event('input', { bubbles: true }))")
+                            pass_input.evaluate("el => el.dispatchEvent(new Event('change', { bubbles: true }))")
+                        except Exception:
+                            user_input.fill(UBIKO_USER)
+                            pass_input.fill(UBIKO_PASSWORD)
+
                         submit_btn = page.query_selector('button[type="submit"], input[type="submit"], button:has-text("Entrar"), button:has-text("Iniciar"), button:has-text("Acceder"), #kt_sign_in_submit')
                         if submit_btn:
                             submit_btn.click()
                             print("[UBIKO] Credenciales enviadas, esperando autenticación...")
                             try:
-                                page.wait_for_url(lambda u: "login" not in u.lower(), timeout=15000)
+                                page.wait_for_url(lambda u: "login" not in u.lower(), timeout=12000)
                             except Exception:
                                 pass
                             time.sleep(2)
@@ -301,9 +335,20 @@ class UbikoSyncService:
 
             print(f"[UBIKO] Página activa: {page.url} | '{page.title()}'")
 
+            # Si aparece selector de club o equipo (por ejemplo tras login limpio)
+            try:
+                puente_genil = page.locator('text="Puente Genil", text="PUENTE GENIL", [title*="Puente Genil" i]').first
+                if puente_genil.is_visible(timeout=3000):
+                    print("[UBIKO] Selector de equipo detectado. Seleccionando Puente Genil F.C...")
+                    puente_genil.click()
+                    time.sleep(2)
+            except Exception:
+                pass
+
             # Guardar sesión autenticada si ya no estamos en login
             if "login" not in page.url.lower():
                 try:
+                    DATA_DIR.mkdir(parents=True, exist_ok=True)
                     context.storage_state(path=str(SESSION_STORAGE))
                 except Exception:
                     pass
@@ -313,7 +358,7 @@ class UbikoSyncService:
             if "team/sessions" not in page.url.lower():
                 print(f"[UBIKO] Navegando a la sección de sesiones del equipo: {target_sessions_url}")
                 try:
-                    page.goto(target_sessions_url, wait_until="domcontentloaded", timeout=20000)
+                    page.goto(target_sessions_url, wait_until="domcontentloaded", timeout=15000)
                     time.sleep(2)
                 except Exception as e_nav:
                     print(f"[UBIKO] Error navegando directamente ({e_nav}), intentando clic en menú 'Sesiones'...")
@@ -466,12 +511,12 @@ class UbikoSyncService:
             csv_item = current_row.locator('button:has-text("CSV"), a:has-text("CSV"), [title*="CSV" i], [aria-label*="CSV" i]')
             if csv_item.count() > 0:
                 try:
-                    with page.expect_download(timeout=15000) as download_info:
+                    with page.expect_download(timeout=5000) as download_info:
                         csv_item.first.click()
                     download = download_info.value
-                except Exception as e_c1:
+                except Exception:
                     try:
-                        with page.expect_download(timeout=15000) as download_info:
+                        with page.expect_download(timeout=4000) as download_info:
                             csv_item.first.evaluate("el => el.click()")
                         download = download_info.value
                     except Exception:
@@ -480,12 +525,12 @@ class UbikoSyncService:
             # Intento 2: En la tabla de UBIKO, el botón CSV es típicamente el 4º botón verde (índice 3)
             if not download and len(act_btns) >= 4:
                 try:
-                    with page.expect_download(timeout=15000) as download_info:
+                    with page.expect_download(timeout=4000) as download_info:
                         act_btns[3].click()
                     download = download_info.value
                 except Exception:
                     try:
-                        with page.expect_download(timeout=15000) as download_info:
+                        with page.expect_download(timeout=4000) as download_info:
                             act_btns[3].evaluate("el => el.click()")
                         download = download_info.value
                     except Exception:
@@ -494,7 +539,7 @@ class UbikoSyncService:
             # Intento 3: Probar el 3º botón (índice 2)
             if not download and len(act_btns) >= 3:
                 try:
-                    with page.expect_download(timeout=10000) as download_info:
+                    with page.expect_download(timeout=3000) as download_info:
                         act_btns[2].click()
                     download = download_info.value
                 except Exception:
@@ -506,8 +551,8 @@ class UbikoSyncService:
                 if dropdown_toggle.count() > 0:
                     try:
                         dropdown_toggle.first.click()
-                        time.sleep(1)
-                        with page.expect_download(timeout=15000) as download_info:
+                        time.sleep(0.5)
+                        with page.expect_download(timeout=5000) as download_info:
                             page.locator('button:has-text("CSV"), a:has-text("CSV"), .dropdown-item:has-text("CSV")').first.click(force=True)
                         download = download_info.value
                     except Exception as e_dd:
@@ -685,4 +730,7 @@ if __name__ == "__main__":
             print("\n" + "=" * 65)
             print(" INFORME TÁCTICO GENERADO:")
             print("=" * 65)
-            print(resultado["report"])
+            try:
+                print(resultado["report"])
+            except UnicodeEncodeError:
+                print(resultado["report"].encode("ascii", "replace").decode("ascii"))
