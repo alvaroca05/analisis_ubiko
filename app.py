@@ -99,12 +99,44 @@ except Exception as e_import:
 # Estilos CSS personalizados para temática deportiva profesional de alto rendimiento
 st.markdown("""
 <style>
-    /* Ajustes base y modo oscuro */
-    .main {
-        background-color: #0E1117;
+    /* ====================================================================
+       SISTEMA DE DISEÑO VISUAL PROFESIONAL - UBIKO PERFORMANCE HUB
+       Paleta: Dark / Slate Premium (#0B1120, #0F172A, #1E293B, #334155)
+       Tipografía: Inter (Google Fonts) + Soporte Números Tabulares (tnum)
+       ==================================================================== */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+    :root {
+        --bg-main: #0B1120;
+        --bg-surface: #0F172A;
+        --bg-card: #1E293B;
+        --border-card: #334155;
+        --border-subtle: #1E293B;
+        --text-primary: #F8FAFC;
+        --text-secondary: #94A3B8;
+        --text-muted: #64748B;
+        --accent-primary: #38BDF8;
+        --accent-blue: #0284C7;
+        --status-opt: #10B981;
+        --status-mod: #F59E0B;
+        --status-dgr: #EF4444;
     }
 
-    /* OCULTAR ENLACES A GITHUB, MENÚ STREAMLIT Y BARRA SUPERIOR POR SEGURIDAD */
+    /* Tipografía Global y Estilo Base */
+    html, body, [class*="css"], .stApp {
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+        background-color: var(--bg-main) !important;
+        color: var(--text-primary) !important;
+        -webkit-font-smoothing: antialiased;
+    }
+
+    /* Números Tabulares para prevenir saltos de línea y facilitar lectura técnica rápida */
+    .tabular-nums, [data-testid="stDataFrame"], [data-testid="stTable"], .metric-value, .badge, .badge-pill {
+        font-variant-numeric: tabular-nums !important;
+        font-feature-settings: "tnum" 1 !important;
+    }
+
+    /* Ocultar elementos predeterminados de Streamlit por seguridad y estética de suite */
     #MainMenu {visibility: hidden; display: none !important;}
     header {visibility: hidden; height: 0px !important;}
     footer {visibility: hidden; display: none !important;}
@@ -114,63 +146,207 @@ st.markdown("""
     .viewerBadge_container__1QSob {display: none !important;}
     [data-testid="manage-app-button"] {display: none !important;}
 
-    /* Contenedor fluido y márgenes adaptativos para no desperdiciar pantalla en móvil */
+    /* Contenedor fluido con padding ergonómico */
     .block-container {
-        padding-top: 1.5rem !important;
+        padding-top: 1.25rem !important;
         padding-bottom: 2.5rem !important;
-        padding-left: 1rem !important;
-        padding-right: 1rem !important;
+        padding-left: 1.25rem !important;
+        padding-right: 1.25rem !important;
         max-width: 100% !important;
     }
 
-    /* Tarjetas de métricas KPIs responsivas */
+    /* Barra Lateral SaaS */
+    [data-testid="stSidebar"] {
+        background-color: #070D18 !important;
+        border-right: 1px solid #1E293B !important;
+    }
+    [data-testid="stSidebar"] hr {
+        border-color: #1E293B !important;
+        margin: 12px 0 !important;
+    }
+    [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 {
+        color: #F8FAFC !important;
+        font-weight: 700 !important;
+        letter-spacing: -0.01em !important;
+    }
+
+    /* Píldora de Estado Cloud Supabase */
+    .db-status-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        background: rgba(16, 185, 129, 0.08);
+        border: 1px solid rgba(16, 185, 129, 0.25);
+        border-radius: 9999px;
+        padding: 3px 10px;
+        font-size: 0.74rem;
+        font-weight: 600;
+        color: #34D399;
+        margin-top: 4px;
+        margin-bottom: 6px;
+    }
+    .db-dot {
+        width: 7px;
+        height: 7px;
+        background-color: #10B981;
+        border-radius: 50%;
+        box-shadow: 0 0 6px #10B981;
+        display: inline-block;
+    }
+
+    /* Tarjetas de Métricas Ejecutivas (KPI Cards) */
     .metric-card {
-        background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%);
+        background-color: #1E293B;
         border: 1px solid #334155;
-        border-radius: 12px;
-        padding: 14px;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+        border-radius: 10px;
+        padding: 13px 15px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.22);
         margin-bottom: 10px;
-        transition: transform 0.15s ease-in-out;
+        transition: border-color 0.15s ease, transform 0.15s ease;
+    }
+    .metric-card:hover {
+        border-color: #475569;
     }
     .metric-title {
         color: #94A3B8;
-        font-size: 0.80rem;
+        font-size: 0.74rem;
         font-weight: 600;
         text-transform: uppercase;
         letter-spacing: 0.05em;
+        margin-bottom: 4px;
     }
     .metric-value {
         color: #F8FAFC;
-        font-size: 1.6rem;
+        font-size: 1.65rem;
         font-weight: 700;
-        margin-top: 4px;
+        line-height: 1.2;
     }
     .metric-subtitle {
         color: #64748B;
-        font-size: 0.75rem;
+        font-size: 0.74rem;
         margin-top: 4px;
     }
 
-    /* Caja de informes tácticos */
+    /* Insignias de Estado Redondeadas (Pills) */
+    .badge, .badge-pill {
+        display: inline-block;
+        padding: 2px 10px;
+        border-radius: 9999px;
+        font-size: 0.74rem;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+    }
+    .badge-optimal {
+        background-color: rgba(16, 185, 129, 0.12);
+        border: 1px solid rgba(16, 185, 129, 0.3);
+        color: #34D399;
+    }
+    .badge-warning {
+        background-color: rgba(245, 158, 11, 0.12);
+        border: 1px solid rgba(245, 158, 11, 0.3);
+        color: #FBBF24;
+    }
+    .badge-danger {
+        background-color: rgba(239, 68, 68, 0.12);
+        border: 1px solid rgba(239, 68, 68, 0.3);
+        color: #F87171;
+    }
+    .badge-info {
+        background-color: rgba(56, 189, 248, 0.12);
+        border: 1px solid rgba(56, 189, 248, 0.3);
+        color: #38BDF8;
+    }
+
+    /* Pestañas (Tabs) Estilizadas */
+    [data-testid="stTabs"] [data-baseweb="tab-list"] {
+        gap: 6px;
+        background-color: transparent;
+        border-bottom: 1px solid #334155;
+        padding-bottom: 2px;
+    }
+    [data-testid="stTabs"] [data-baseweb="tab"] {
+        background-color: transparent !important;
+        border-radius: 6px 6px 0 0 !important;
+        border: none !important;
+        color: #94A3B8 !important;
+        font-weight: 600 !important;
+        font-size: 0.88rem !important;
+        padding: 7px 16px !important;
+    }
+    [data-testid="stTabs"] [data-baseweb="tab"][aria-selected="true"] {
+        color: #38BDF8 !important;
+        border-bottom: 2px solid #38BDF8 !important;
+    }
+
+    /* Botones Streamlit Refinados */
+    .stButton > button {
+        border-radius: 8px !important;
+        font-weight: 600 !important;
+        font-size: 0.88rem !important;
+        transition: all 0.15s ease !important;
+        border: 1px solid #334155 !important;
+    }
+    .stButton > button[kind="primary"] {
+        background: linear-gradient(135deg, #0284C7 0%, #0369A1 100%) !important;
+        border: 1px solid #38BDF8 !important;
+        color: #FFFFFF !important;
+        box-shadow: 0 2px 4px rgba(2, 132, 199, 0.3) !important;
+    }
+    .stButton > button[kind="primary"]:hover {
+        background: linear-gradient(135deg, #0369A1 0%, #075985 100%) !important;
+        border-color: #7DD3FC !important;
+    }
+    .stButton > button[kind="secondary"] {
+        background-color: #1E293B !important;
+        color: #E2E8F0 !important;
+    }
+    .stButton > button[kind="secondary"]:hover {
+        background-color: #243248 !important;
+        border-color: #475569 !important;
+        color: #F8FAFC !important;
+    }
+
+    /* Selectores, Radios y Entradas de Formulario */
+    [data-testid="stRadio"] label, [data-testid="stSelectbox"] label, [data-testid="stMultiSelect"] label {
+        font-size: 0.80rem !important;
+        font-weight: 600 !important;
+        color: #94A3B8 !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.04em !important;
+    }
+    [data-baseweb="select"] > div {
+        background-color: #1E293B !important;
+        border: 1px solid #334155 !important;
+        border-radius: 8px !important;
+    }
+
+    /* Dataframes y Tablas Estilo Suite Analítica */
+    [data-testid="stDataFrame"], [data-testid="stTable"] {
+        border: 1px solid #334155 !important;
+        border-radius: 10px !important;
+        overflow: hidden !important;
+    }
+
+    /* Paneles de Notificación / Alertas nativas de Streamlit */
+    [data-testid="stAlert"] {
+        background-color: #1E293B !important;
+        border: 1px solid #334155 !important;
+        border-radius: 8px !important;
+        color: #E2E8F0 !important;
+    }
+
+    /* Caja de Informes Tácticos */
     .report-box {
-        background-color: #111827;
-        border: 1px solid #374151;
+        background-color: #0F172A;
+        border: 1px solid #334155;
         border-radius: 8px;
         padding: 16px;
-        font-family: 'Courier New', Courier, monospace;
+        font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
         white-space: pre-wrap;
-        color: #E5E7EB;
-        line-height: 1.5;
-        font-size: 0.85rem;
+        color: #E2E8F0;
+        line-height: 1.55;
+        font-size: 0.84rem;
         overflow-x: auto;
-    }
-    .badge {
-        display: inline-block;
-        padding: 2px 8px;
-        border-radius: 12px;
-        font-size: 0.75rem;
-        font-weight: bold;
     }
 
     /* OPTIMIZACIÓN MULTIPLATAFORMA MÓVIL Y TABLET (Breakpoints < 768px) */
@@ -181,49 +357,43 @@ st.markdown("""
             padding-top: 1rem !important;
         }
 
-        /* Títulos más compactos en móvil */
         h1 {
-            font-size: 1.55rem !important;
+            font-size: 1.50rem !important;
             line-height: 1.25 !important;
         }
         h2 {
-            font-size: 1.30rem !important;
+            font-size: 1.25rem !important;
         }
         h3 {
-            font-size: 1.10rem !important;
+            font-size: 1.05rem !important;
         }
 
-        /* Valores de métricas proporcionados a pantalla vertical */
         .metric-value {
-            font-size: 1.4rem !important;
+            font-size: 1.35rem !important;
         }
         .metric-card {
             padding: 10px 12px !important;
             margin-bottom: 8px !important;
         }
 
-        /* Forzar que las columnas de Streamlit en móvil mantengan ancho utilizable y flexwrap */
         [data-testid="column"] {
             min-width: 100% !important;
             flex: 1 1 100% !important;
             margin-bottom: 0.5rem;
         }
 
-        /* Botones táctiles grandes y fáciles de pulsar con el pulgar */
         button[kind="primary"], button[kind="secondary"], .stButton > button {
-            min-height: 46px !important;
-            font-size: 0.95rem !important;
-            border-radius: 10px !important;
+            min-height: 44px !important;
+            font-size: 0.92rem !important;
+            border-radius: 8px !important;
         }
 
-        /* Scroll horizontal fluido para tablas sin deformar la pantalla */
         [data-testid="stDataFrame"], [data-testid="stTable"] {
             overflow-x: auto !important;
             -webkit-overflow-scrolling: touch;
             width: 100% !important;
         }
 
-        /* Ajuste de gráficos Plotly en móvil */
         .js-plotly-plot, .plot-container {
             max-width: 100% !important;
             overflow-x: hidden !important;
@@ -231,13 +401,13 @@ st.markdown("""
     }
 </style>
 
-<!-- Metadatos y soporte PWA (Progressive Web App) para instalación en Móvil / Tablet -->
+<!-- Metadatos y soporte PWA (Progressive Web App) -->
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="UBIKO Hub">
-<meta name="theme-color" content="#0E1117">
+<meta name="theme-color" content="#0B1120">
 <link rel="apple-touch-icon" href="https://img.icons8.com/color/192/football-ball.png">
 """, unsafe_allow_html=True)
 
@@ -437,12 +607,12 @@ def check_authentication() -> bool:
         st.write("")
         st.write("")
         st.markdown("""
-        <div style="background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%); border: 1px solid #334155; border-radius: 16px; padding: 26px 20px; text-align: center; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);">
-            <img src="https://img.icons8.com/color/96/football-ball.png" width="60" style="margin-bottom: 8px;"/>
-            <h2 style="color: #F8FAFC; margin: 0 0 6px 0; font-size: 1.45rem;">UBIKO Performance Hub</h2>
-            <div style="color: #94A3B8; font-size: 0.85rem; margin-bottom: 18px;">
-                🔒 Portal Confidencial de Telemetría GPS y Cargas de Competición.<br>
-                <span style="color: #00E676; font-weight: 600;">Acceso Restringido al Cuerpo Técnico</span>
+        <div style="background: #1E293B; border: 1px solid #334155; border-radius: 14px; padding: 28px 24px; text-align: center; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4);">
+            <img src="https://img.icons8.com/color/96/football-ball.png" width="56" style="margin-bottom: 10px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));"/>
+            <h2 style="color: #F8FAFC; margin: 0 0 6px 0; font-size: 1.45rem; font-weight: 700; letter-spacing: -0.02em;">UBIKO Performance Hub</h2>
+            <div style="color: #94A3B8; font-size: 0.84rem; margin-bottom: 16px; line-height: 1.45;">
+                Suite Analítica de Telemetría GPS & Periodización Táctica.<br>
+                <span class="badge-pill optimal" style="margin-top: 6px;">Acceso Confidencial &bull; Cuerpo Técnico</span>
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -455,16 +625,16 @@ def check_authentication() -> bool:
                 placeholder="Introduce la clave del cuerpo técnico...",
                 help="Protege la telemetría, prescripciones y datos de los futbolistas frente a accesos no autorizados."
             )
-            submit_btn = st.form_submit_button("🔑 Entrar al Sistema", type="primary", use_container_width=True)
+            submit_btn = st.form_submit_button("Entrar al Sistema", type="primary", use_container_width=True)
             if submit_btn:
                 if entered_pwd == configured_pwd:
                     st.session_state["authenticated"] = True
-                    st.toast("¡Acceso concedido al Hub!", icon="⚽")
+                    st.toast("Acceso concedido al Hub.", icon="⚽")
                     st.rerun()
                 else:
-                    st.error("⛔ Contraseña incorrecta. Acceso restringido por confidencialidad del club.")
+                    st.error("Contraseña incorrecta. Acceso restringido por confidencialidad del club.")
 
-        st.caption("🛡️ Datos protegidos con cifrado SSL y políticas de privacidad.")
+        st.caption("Cifrado de datos en tránsito y reposo bajo políticas de club profesional.")
 
     return False
 
@@ -473,12 +643,22 @@ if not check_authentication():
 
 
 # ==========================================
-# BARRA LATERAL (SIDEBAR)
+# BARRA LATERAL (SIDEBAR SAAS)
 # ==========================================
 with st.sidebar:
-    st.image("https://img.icons8.com/color/96/football-ball.png", width=64)
-    st.title("UBIKO Hub")
-    st.caption("Monitorización de Carga GPS & Periodización Táctica")
+    st.markdown("""
+    <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 6px; padding-top: 4px;">
+        <img src="https://img.icons8.com/color/96/football-ball.png" width="38" height="38" style="filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));"/>
+        <div>
+            <div style="color: #F8FAFC; font-weight: 700; font-size: 1.15rem; letter-spacing: -0.02em; line-height: 1.15;">UBIKO Hub</div>
+            <div style="color: #64748B; font-size: 0.72rem; font-weight: 500;">Rendimiento GPS & Cargas</div>
+        </div>
+    </div>
+    <div class="db-status-badge">
+        <span class="db-dot"></span>
+        <span>Supabase Cloud Conectado</span>
+    </div>
+    """, unsafe_allow_html=True)
 
     if "nav_menu" not in st.session_state:
         st.session_state["nav_menu"] = "📊 Panel de Sesión & Semáforo"
@@ -487,7 +667,7 @@ with st.sidebar:
     elif st.session_state.get("nav_menu") == "📝 Informe Táctico Ejecutivo":
         st.session_state["nav_menu"] = "📝 Informe Semanal (Cuerpo Técnico)"
 
-    if st.button("⏱️ Añadir / Registrar RPE", type="primary", use_container_width=True, help="Abrir registro de percepción de esfuerzo de la sesión (Foster 1-10)"):
+    if st.button("Registrar Carga Interna (RPE)", type="primary", use_container_width=True, help="Abrir registro de percepción de esfuerzo de la sesión (Foster 1-10)"):
         st.session_state["nav_menu"] = "⏱️ Carga Interna & Registro RPE"
         st.rerun()
 
@@ -510,21 +690,20 @@ with st.sidebar:
     )
 
     st.divider()
-    st.subheader("Selección de Sesión")
+    st.markdown('<div class="metric-title" style="margin-bottom: 6px;">Selección de Sesión</div>', unsafe_allow_html=True)
 
     cached_sessions = get_cached_sessions()
     session_options = {label: s_id for s_id, label in cached_sessions}
 
     if session_options:
-        selected_session_label = st.selectbox("Sesión a evaluar:", list(session_options.keys()))
+        selected_session_label = st.selectbox("Sesión activa:", list(session_options.keys()), label_visibility="collapsed")
         selected_session_id = session_options[selected_session_label]
     else:
         st.warning("No hay sesiones en la base de datos.")
         selected_session_id = None
 
     st.divider()
-    st.subheader("⚡ Sincronización UBIKO")
-    st.caption("☁️ Base de datos activa: **Supabase (Nube)**")
+    st.markdown('<div class="metric-title" style="margin-bottom: 6px;">Sincronización UBIKO</div>', unsafe_allow_html=True)
 
     sync_from_date = st.date_input("Recopilar desde fecha:", value=date(2026, 9, 3), key="sidebar_sync_date")
     col_opt1, col_opt2 = st.columns(2)
@@ -533,7 +712,7 @@ with st.sidebar:
     with col_opt2:
         visible_sync = st.checkbox("Ver navegador", value=False, key="sidebar_visible_sync", help="Muestra la ventana del navegador para verificar el login o descargas en UBIKO.")
 
-    if st.button("🚀 Sincronizar Sesiones Ahora", type="primary", use_container_width=True):
+    if st.button("Sincronizar Telemetría", type="primary", use_container_width=True):
         with st.spinner("Conectando con UBIKO Web y guardando en Supabase..."):
             import importlib
             import ubiko_sync
@@ -547,17 +726,17 @@ with st.sidebar:
 
             if is_success and synced_count > 0:
                 st.toast(msg, icon="⚽")
-                st.success(f"✅ {msg}")
+                st.success(f"{msg}")
                 time.sleep(1.2)
                 st.rerun()
             elif is_success and synced_count == 0:
-                st.info(f"ℹ️ {msg}")
+                st.info(f"{msg}")
             else:
-                st.error(f"❌ {msg}")
+                st.error(f"{msg}")
 
-    with st.expander("📁 Subir CSV de UBIKO directamente", expanded=False):
-        st.caption("Si prefieres no usar la extracción web o estás en un entorno restringido, puedes subir aquí el `.csv` descargado de UBIKO:")
-        sb_uploaded = st.file_uploader("Arrastra tu archivo CSV:", type=["csv", "xlsx"], key="sb_quick_csv")
+    with st.expander("Subida Manual de Datos GPS (CSV)", expanded=False):
+        st.caption("Si prefieres importar manualmente o te encuentras sin conexión web directa, arrastra el archivo exportado por UBIKO:")
+        sb_uploaded = st.file_uploader("Archivo de sesión:", type=["csv", "xlsx"], key="sb_quick_csv")
         if sb_uploaded is not None:
             from src.services.importer import UbikoImporter
             with st.spinner("Procesando e insertando en Supabase..."):
@@ -566,32 +745,32 @@ with st.sidebar:
                     res_imp = UbikoImporter.import_session_to_db(db, df_parsed, original_filename=sb_uploaded.name)
                 st.cache_data.clear()
                 if res_imp.get("success"):
-                    st.success(f"✅ {res_imp.get('message', 'Sesión importada correctamente')}")
+                    st.success(f"{res_imp.get('message', 'Sesión importada correctamente')}")
                     time.sleep(1.2)
                     st.rerun()
                 else:
-                    st.error(f"❌ {res_imp.get('error', 'Error al importar archivo')}")
+                    st.error(f"{res_imp.get('error', 'Error al importar archivo')}")
 
     col_sb1, col_sb2 = st.columns(2)
     with col_sb1:
-        if st.button("🧹 Limpiar Falsos", use_container_width=True, help="Elimina sesiones y métricas simuladas de Supabase, manteniendo la plantilla y objetivos."):
+        if st.button("Depurar Pruebas", use_container_width=True, help="Elimina sesiones y métricas simuladas de Supabase, manteniendo la plantilla y objetivos."):
             from seed_data import purge_simulated_sessions_and_metrics
             n_s, n_m = purge_simulated_sessions_and_metrics()
             st.cache_data.clear()
-            st.toast(f"Limpieza completada: {n_s} sesiones y {n_m} métricas borradas.", icon="🧹")
+            st.toast(f"Depuración: {n_s} sesiones y {n_m} métricas borradas.", icon="🧹")
             st.rerun()
     with col_sb2:
-        if st.button("🔄 Simular Datos", use_container_width=True, help="Genera datos sintéticos de prueba."):
+        if st.button("Simular Datos", use_container_width=True, help="Genera datos sintéticos de prueba."):
             from seed_data import seed_database
             seed_database(include_sessions=True)
             st.cache_data.clear()
             st.toast("Datos sintéticos generados.", icon="✅")
             st.rerun()
 
-    st.caption("TFG Ingeniería Informática | Universidad de Córdoba")
+    st.caption("TFG Grado en Ingeniería Informática | UCO")
 
     st.divider()
-    if st.button("🔒 Cerrar Sesión", use_container_width=True, help="Bloquea el portal y cierra la sesión del cuerpo técnico."):
+    if st.button("Cerrar Sesión", use_container_width=True, help="Bloquea el portal y cierra la sesión del cuerpo técnico."):
         st.session_state["authenticated"] = False
         st.rerun()
 
@@ -615,16 +794,26 @@ if menu == "📊 Panel de Sesión & Semáforo":
     team_kpis = summary.get("team_kpis", {})
     targets = summary.get("targets", {})
 
-    # Cabecera de la sesión
-    st.title(f"Sesión: {sess.name}")
-    col_h1, col_h2, col_h3, col_h4 = st.columns(4)
-    col_h1.info(f"📅 **Fecha:** {sess.date.strftime('%d/%m/%Y')}")
-    col_h2.info(f"⚡ **Microciclo:** {sess.microcycle_day}")
-    col_h3.info(f"⏱️ **Duración:** {sess.duration_minutes} min")
-    col_h4.info(f"🏟️ **Tipo:** {sess.session_type}")
-
-    st.markdown(f"**Enfoque de la sesión:** {MICROCYCLE_DESCRIPTIONS.get(sess.microcycle_day, '')}")
-    st.write("")
+    # Cabecera ejecutiva de la sesión
+    st.markdown(f"""
+    <div style="background: #1E293B; border: 1px solid #334155; border-radius: 12px; padding: 18px 20px; margin-bottom: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 10px;">
+            <div>
+                <div style="color: #94A3B8; font-size: 0.74rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Monitorización de Sesión</div>
+                <h1 style="color: #F8FAFC; font-size: 1.60rem; font-weight: 700; margin: 3px 0 6px 0; letter-spacing: -0.02em;">{sess.name}</h1>
+                <div style="color: #94A3B8; font-size: 0.84rem;">
+                    <b>Enfoque Fisiológico:</b> {MICROCYCLE_DESCRIPTIONS.get(sess.microcycle_day, 'Trabajo de periodización táctica')}
+                </div>
+            </div>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 4px;">
+                <span class="badge-pill" style="background: rgba(15, 23, 42, 0.6); border: 1px solid #334155; color: #E2E8F0;">📅 {sess.date.strftime('%d/%m/%Y')}</span>
+                <span class="badge-pill info">⚡ {sess.microcycle_day}</span>
+                <span class="badge-pill" style="background: rgba(15, 23, 42, 0.6); border: 1px solid #334155; color: #E2E8F0;">⏱️ {sess.duration_minutes} min</span>
+                <span class="badge-pill {'badge-info' if sess.session_type == 'Partido' else 'badge-optimal'}">{sess.session_type}</span>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
     # Fila de KPIs de la sesión
     kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
@@ -883,22 +1072,22 @@ if menu == "📊 Panel de Sesión & Semáforo":
         def highlight_diag(val):
             s = str(val)
             if "Déficit" in s:
-                return "background-color: rgba(239, 68, 68, 0.25); color: #FCA5A5; font-weight: bold;"
+                return "background-color: rgba(239, 68, 68, 0.15); color: #FCA5A5; font-weight: 600; border-radius: 9999px; padding: 2px 8px;"
             elif "Sobre" in s or "Exceso" in s or "Sobrecarga" in s:
-                return "background-color: rgba(245, 158, 11, 0.25); color: #FCD34D; font-weight: bold;"
+                return "background-color: rgba(245, 158, 11, 0.15); color: #FCD34D; font-weight: 600; border-radius: 9999px; padding: 2px 8px;"
             elif "Cumplido" in s or "Correcta" in s or "Óptimo" in s or "Adecuada" in s:
-                return "background-color: rgba(16, 185, 129, 0.25); color: #6EE7B7; font-weight: bold;"
+                return "background-color: rgba(16, 185, 129, 0.15); color: #6EE7B7; font-weight: 600; border-radius: 9999px; padding: 2px 8px;"
             return ""
 
         def highlight_metric_pct(val):
             try:
                 v = float(val)
                 if v < 80.0:
-                    return "background-color: rgba(239, 68, 68, 0.18); color: #F87171; font-weight: bold;"
+                    return "background-color: rgba(239, 68, 68, 0.12); color: #F87171; font-weight: 600; border-radius: 6px; padding: 2px 6px;"
                 elif v > 115.0:
-                    return "background-color: rgba(245, 158, 11, 0.18); color: #FBBF24; font-weight: bold;"
+                    return "background-color: rgba(245, 158, 11, 0.12); color: #FBBF24; font-weight: 600; border-radius: 6px; padding: 2px 6px;"
                 else:
-                    return "background-color: rgba(16, 185, 129, 0.18); color: #34D399; font-weight: bold;"
+                    return "background-color: rgba(16, 185, 129, 0.12); color: #34D399; font-weight: 600; border-radius: 6px; padding: 2px 6px;"
             except Exception:
                 return ""
 
@@ -930,11 +1119,11 @@ if menu == "📊 Panel de Sesión & Semáforo":
                     try:
                         v = float(val)
                         if v < 80.0:
-                            return "background-color: rgba(239, 68, 68, 0.25); color: #FCA5A5; font-weight: bold;"
+                            return "background-color: rgba(239, 68, 68, 0.14); color: #FCA5A5; font-weight: 600; border-radius: 6px; padding: 2px 6px;"
                         elif v > 115.0:
-                            return "background-color: rgba(245, 158, 11, 0.25); color: #FCD34D; font-weight: bold;"
+                            return "background-color: rgba(245, 158, 11, 0.14); color: #FCD34D; font-weight: 600; border-radius: 6px; padding: 2px 6px;"
                         else:
-                            return "background-color: rgba(16, 185, 129, 0.25); color: #6EE7B7; font-weight: bold;"
+                            return "background-color: rgba(16, 185, 129, 0.14); color: #6EE7B7; font-weight: 600; border-radius: 6px; padding: 2px 6px;"
                     except Exception:
                         return ""
 
@@ -1080,24 +1269,24 @@ if menu == "📊 Panel de Sesión & Semáforo":
     # Estilizado visual en Streamlit
     def highlight_status(val):
         if "Sobrecarga" in str(val) or "Peligro" in str(val):
-            return "background-color: rgba(239, 68, 68, 0.25); color: #FCA5A5; font-weight: bold;"
+            return "background-color: rgba(239, 68, 68, 0.15); color: #FCA5A5; font-weight: 600; border-radius: 9999px; padding: 2px 8px;"
         elif "Precaución" in str(val) or "Fatiga" in str(val):
-            return "background-color: rgba(245, 158, 11, 0.25); color: #FCD34D; font-weight: bold;"
+            return "background-color: rgba(245, 158, 11, 0.15); color: #FCD34D; font-weight: 600; border-radius: 9999px; padding: 2px 8px;"
         elif "Óptimo" in str(val) or "Sweet" in str(val):
-            return "background-color: rgba(16, 185, 129, 0.25); color: #6EE7B7; font-weight: bold;"
+            return "background-color: rgba(16, 185, 129, 0.15); color: #6EE7B7; font-weight: 600; border-radius: 9999px; padding: 2px 8px;"
         elif "Subentrenamiento" in str(val):
-            return "background-color: rgba(59, 130, 246, 0.25); color: #93C5FD; font-weight: bold;"
+            return "background-color: rgba(56, 189, 248, 0.15); color: #7DD3FC; font-weight: 600; border-radius: 9999px; padding: 2px 8px;"
         return ""
 
     def highlight_compliance(val):
         try:
             v = float(val)
             if v < 75.0 or v > 125.0:
-                return "background-color: rgba(239, 68, 68, 0.20); color: #F87171; font-weight: bold;"
+                return "background-color: rgba(239, 68, 68, 0.14); color: #F87171; font-weight: 600; border-radius: 6px; padding: 2px 6px;"
             elif v < 88.0 or v > 112.0:
-                return "background-color: rgba(245, 158, 11, 0.20); color: #FBBF24; font-weight: bold;"
+                return "background-color: rgba(245, 158, 11, 0.14); color: #FBBF24; font-weight: 600; border-radius: 6px; padding: 2px 6px;"
             else:
-                return "background-color: rgba(16, 185, 129, 0.20); color: #34D399; font-weight: bold;"
+                return "background-color: rgba(16, 185, 129, 0.14); color: #34D399; font-weight: 600; border-radius: 6px; padding: 2px 6px;"
         except Exception:
             return ""
 
@@ -1138,13 +1327,14 @@ if menu == "📊 Panel de Sesión & Semáforo":
 # ==========================================
 elif menu == "🏟️ Referencia Partidos (Excel P.F.)":
     st.markdown("""
-    <div style="background: linear-gradient(90deg, #1E3A8A 0%, #0F172A 100%); padding: 18px 24px; border-radius: 12px; border: 1px solid #3B82F6; margin-bottom: 20px;">
-        <h2 style="color: #F8FAFC; margin: 0; font-size: 1.35rem; letter-spacing: 0.04em;">
-            🏟️ TEMPORADA 26/27 SALERM COSMETIC PUENTE GENIL REFERENCIA DATOS DE PARTIDOS
+    <div style="background: #1E293B; border: 1px solid #334155; border-radius: 12px; padding: 18px 22px; margin-bottom: 20px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);">
+        <div style="color: #38BDF8; font-size: 0.74rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Modelo de Rendimiento Competitivo</div>
+        <h2 style="color: #F8FAFC; margin: 3px 0 6px 0; font-size: 1.40rem; font-weight: 700; letter-spacing: -0.02em;">
+            Salerm Puente Genil &bull; Datos de Referencia de Partidos
         </h2>
-        <p style="color: #93C5FD; margin: 6px 0 0 0; font-size: 0.88rem;">
-            Estructura de control oficial del preparador físico | Máxima exigencia competitiva por demarcación y datos generales del equipo
-        </p>
+        <div style="color: #94A3B8; font-size: 0.84rem;">
+            Estructura oficial de control del preparador físico | Techos de máxima exigencia competitiva por demarcación y rendimiento del equipo.
+        </div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -1266,13 +1456,14 @@ elif menu == "🏟️ Referencia Partidos (Excel P.F.)":
         # Destacado del JUGADOR TOP
         if top_p:
             st.markdown(f"""
-            <div style="background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 8px; padding: 10px 16px; margin-bottom: 15px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;">
-                <div>
-                    <span style="color: #EF4444; font-weight: bold; font-size: 0.95rem;">⭐ JUGADOR TOP DE LA SESIÓN:</span>
-                    <span style="color: #F8FAFC; font-weight: 700; margin-left: 8px;">#{top_p['dorsal']} {top_p['player_name'].upper()} ({top_p['position']})</span>
+            <div style="background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 10px; padding: 12px 18px; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span class="badge-pill danger">JUGADOR TOP DEL PARTIDO</span>
+                    <span style="color: #F8FAFC; font-weight: 700; font-size: 0.95rem;">#{top_p['dorsal']} {top_p['player_name'].upper()}</span>
+                    <span style="color: #94A3B8; font-size: 0.80rem;">({top_p['position']})</span>
                 </div>
-                <div style="color: #FCA5A5; font-size: 0.85rem; font-weight: 600;">
-                    Distancia: <b>{top_p['distance_km']:.2f} km</b> | Vmax: <b>{top_p['max_speed']:.2f} km/h</b> | HSR: <b>{top_p['hsr_m']:.0f} m</b> | Esfuerzos: <b>{top_p['acc_expl'] + top_p['dcc_expl']}</b>
+                <div style="color: #FCA5A5; font-size: 0.84rem; font-weight: 600;">
+                    Distancia: <b>{top_p['distance_km']:.2f} km</b> &bull; Vmax: <b>{top_p['max_speed']:.2f} km/h</b> &bull; HSR: <b>{top_p['hsr_m']:.0f} m</b> &bull; Esfuerzos: <b>{top_p['acc_expl'] + top_p['dcc_expl']}</b>
                 </div>
             </div>
             """, unsafe_allow_html=True)
@@ -1310,11 +1501,11 @@ elif menu == "🏟️ Referencia Partidos (Excel P.F.)":
             row_type = row.get("_row_type", "")
             pos = str(row.get("POSICIÓN", ""))
             if row_type == "top" or "⭐" in pos:
-                return ["background-color: rgba(239, 68, 68, 0.22); color: #FCA5A5; font-weight: bold; border-top: 1px solid #EF4444; border-bottom: 1px solid #EF4444;"] * len(row)
+                return ["background-color: rgba(239, 68, 68, 0.16); color: #FCA5A5; font-weight: 700; border-top: 1px solid rgba(239, 68, 68, 0.4); border-bottom: 1px solid rgba(239, 68, 68, 0.4);"] * len(row)
             elif row_type == "team" or "EQUIPO" in pos:
-                return ["background-color: rgba(37, 99, 235, 0.28); color: #93C5FD; font-weight: bold; border-top: 2px solid #3B82F6;"] * len(row)
+                return ["background-color: rgba(30, 58, 138, 0.25); color: #93C5FD; font-weight: 700; border-top: 2px solid #38BDF8;"] * len(row)
             elif row_type == "player_top":
-                return ["background-color: rgba(239, 68, 68, 0.12); font-weight: 600;"] * len(row)
+                return ["background-color: rgba(239, 68, 68, 0.08); font-weight: 600;"] * len(row)
             return [""] * len(row)
 
         st.dataframe(
@@ -1444,11 +1635,19 @@ elif menu in ["📋 Planificación & Comparativa (50/70/80%)", "📋 Planificaci
     if summary_cmp and "session" in summary_cmp:
         s_obj = summary_cmp["session"]
         m_list = summary_cmp.get("metrics", pd.DataFrame())
-        col_m1, col_m2, col_m3, col_m4 = st.columns(4)
-        col_m1.info(f"📅 **Fecha:** {s_obj.date.strftime('%d/%m/%Y')}")
-        col_m2.info(f"⚡ **Microciclo:** {s_obj.microcycle_day}")
-        col_m3.info(f"⏱️ **Duración:** {s_obj.duration_minutes} min")
-        col_m4.info(f"👥 **Futbolistas con GPS:** {len(m_list)}")
+        st.markdown(f"""
+        <div style="background: #1E293B; border: 1px solid #334155; border-radius: 10px; padding: 12px 18px; margin-bottom: 14px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+            <div style="font-weight: 600; color: #F8FAFC; font-size: 0.90rem;">
+                Sesión: <span style="color: #38BDF8;">{s_obj.name}</span>
+            </div>
+            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                <span class="badge-pill" style="background: rgba(15, 23, 42, 0.6); border: 1px solid #334155; color: #E2E8F0;">📅 {s_obj.date.strftime('%d/%m/%Y')}</span>
+                <span class="badge-pill info">⚡ {s_obj.microcycle_day}</span>
+                <span class="badge-pill" style="background: rgba(15, 23, 42, 0.6); border: 1px solid #334155; color: #E2E8F0;">⏱️ {s_obj.duration_minutes} min</span>
+                <span class="badge-pill optimal">👥 {len(m_list)} futbolistas</span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
     # 2. Filtros Interactivos (colocados arriba de las pestañas)
     col_f1, col_f2 = st.columns([1.0, 1.4])
@@ -1519,7 +1718,7 @@ elif menu in ["📋 Planificación & Comparativa (50/70/80%)", "📋 Planificaci
         with k2:
             st.markdown(f"""
             <div class="metric-card" style="border-left: 4px solid #10B981;">
-                <div class="metric-title">🟢 Cumplieron Objetivo</div>
+                <div class="metric-title">Cumplieron Objetivo</div>
                 <div class="metric-value" style="color: #10B981;">{n_opt}</div>
                 <div class="metric-subtitle">En rango óptimo (80-115%)</div>
             </div>
@@ -1527,7 +1726,7 @@ elif menu in ["📋 Planificación & Comparativa (50/70/80%)", "📋 Planificaci
         with k3:
             st.markdown(f"""
             <div class="metric-card" style="border-left: 4px solid #EF4444;">
-                <div class="metric-title">🔴 En Déficit</div>
+                <div class="metric-title">En Déficit</div>
                 <div class="metric-value" style="color: #EF4444;">{n_def}</div>
                 <div class="metric-subtitle">< 80% de meta {lvl_val}%</div>
             </div>
@@ -1535,7 +1734,7 @@ elif menu in ["📋 Planificación & Comparativa (50/70/80%)", "📋 Planificaci
         with k4:
             st.markdown(f"""
             <div class="metric-card" style="border-left: 4px solid #F59E0B;">
-                <div class="metric-title">🟠 Sobre-estímulo</div>
+                <div class="metric-title">Sobre-estímulo</div>
                 <div class="metric-value" style="color: #F59E0B;">{n_sob}</div>
                 <div class="metric-subtitle">> 115% de meta {lvl_val}%</div>
             </div>
@@ -1555,22 +1754,22 @@ elif menu in ["📋 Planificación & Comparativa (50/70/80%)", "📋 Planificaci
         def highlight_diag(val):
             s = str(val)
             if "Déficit" in s or "🔴" in s:
-                return "background-color: rgba(239, 68, 68, 0.25); color: #FCA5A5; font-weight: bold;"
+                return "background-color: rgba(239, 68, 68, 0.15); color: #FCA5A5; font-weight: 600; border-radius: 9999px; padding: 2px 8px;"
             elif "Sobre" in s or "🟠" in s or "Exceso" in s:
-                return "background-color: rgba(245, 158, 11, 0.25); color: #FCD34D; font-weight: bold;"
+                return "background-color: rgba(245, 158, 11, 0.15); color: #FCD34D; font-weight: 600; border-radius: 9999px; padding: 2px 8px;"
             elif "Cumplido" in s or "🟢" in s or "Óptimo" in s:
-                return "background-color: rgba(16, 185, 129, 0.25); color: #6EE7B7; font-weight: bold;"
+                return "background-color: rgba(16, 185, 129, 0.15); color: #6EE7B7; font-weight: 600; border-radius: 9999px; padding: 2px 8px;"
             return ""
 
         def highlight_comp_cell(val):
             try:
                 v = float(val)
                 if v < 80.0:
-                    return "background-color: rgba(239, 68, 68, 0.20); color: #F87171; font-weight: bold;"
+                    return "background-color: rgba(239, 68, 68, 0.12); color: #F87171; font-weight: 600; border-radius: 6px; padding: 2px 6px;"
                 elif v > 115.0:
-                    return "background-color: rgba(245, 158, 11, 0.20); color: #FBBF24; font-weight: bold;"
+                    return "background-color: rgba(245, 158, 11, 0.12); color: #FBBF24; font-weight: 600; border-radius: 6px; padding: 2px 6px;"
                 else:
-                    return "background-color: rgba(16, 185, 129, 0.20); color: #34D399; font-weight: bold;"
+                    return "background-color: rgba(16, 185, 129, 0.12); color: #34D399; font-weight: 600; border-radius: 6px; padding: 2px 6px;"
             except Exception:
                 return ""
 
@@ -1887,13 +2086,14 @@ elif menu == "📈 Evolución Longitudinal & ACWR":
 # ==========================================
 elif menu in ["📝 Informe Semanal (Cuerpo Técnico)", "📝 Informe Táctico Ejecutivo"]:
     st.markdown("""
-    <div style="background: linear-gradient(90deg, #1E293B 0%, #0F172A 100%); padding: 18px 22px; border-radius: 12px; border: 1px solid #334155; margin-bottom: 20px;">
-        <h2 style="color: #F8FAFC; margin: 0; font-size: 1.35rem;">
-            📝 Informe Semanal para el Primer Entrenador & Cuerpo Técnico
+    <div style="background: #1E293B; border: 1px solid #334155; border-radius: 12px; padding: 20px 24px; margin-bottom: 20px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);">
+        <div style="color: #38BDF8; font-size: 0.74rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Dirección Técnica &amp; Rendimiento</div>
+        <h2 style="color: #F8FAFC; margin: 3px 0 6px 0; font-size: 1.45rem; font-weight: 700; letter-spacing: -0.02em;">
+            Informe Semanal para el Primer Entrenador &amp; Cuerpo Técnico
         </h2>
-        <p style="color: #94A3B8; margin: 6px 0 0 0; font-size: 0.88rem;">
+        <div style="color: #94A3B8; font-size: 0.85rem; line-height: 1.5;">
             Síntesis ejecutiva de microciclos competitivos (desde MD+1 / MD-4 hasta MD-1 y Partido). Contrasta estímulos planificados vs. carga acumulada, futbolistas en estado óptimo, déficit de estímulo para compensatorios y alertas de fatiga con recomendaciones tácticas directas.
-        </p>
+        </div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -1982,10 +2182,10 @@ elif menu in ["📝 Informe Semanal (Cuerpo Técnico)", "📝 Informe Táctico E
 
     # Pestañas de Secciones Ejecutivas
     tab_sec1, tab_sec2, tab_sec3, tab_sec4 = st.tabs([
-        "📋 1. Resumen del Microciclo",
-        f"🟢 2. Estado Óptimo ({len(optimal_list)})",
-        f"🔵 3. Déficit de Estímulo ({len(deficit_list)})",
-        f"⚠️ 4. Alertas de Fatiga ({len(fatigue_list)})"
+        "Resumen del Microciclo",
+        f"Estado Óptimo ({len(optimal_list)})",
+        f"Déficit de Estímulo ({len(deficit_list)})",
+        f"Alertas de Fatiga ({len(fatigue_list)})"
     ])
 
     # 1. RESUMEN DEL MICROCICLO
@@ -2118,7 +2318,7 @@ elif menu in ["📝 Informe Semanal (Cuerpo Técnico)", "📝 Informe Táctico E
     st.divider()
 
     # 5. Exportación y Descarga del Informe Semanal
-    st.subheader("📤 Exportar Informe Semanal para el Cuerpo Técnico")
+    st.markdown('<div class="metric-title" style="margin-bottom: 8px;">Exportación Ejecutiva del Informe Semanal</div>', unsafe_allow_html=True)
     report_txt = generate_weekly_coach_report(weekly_data)
     report_html = generate_weekly_coach_html_report(weekly_data)
     file_slug = f"informe_semanal_ubiko_{sel_start_date}_{sel_end_date}"
@@ -2126,7 +2326,7 @@ elif menu in ["📝 Informe Semanal (Cuerpo Técnico)", "📝 Informe Táctico E
     col_btn1, col_btn2 = st.columns(2)
     with col_btn1:
         st.download_button(
-            label="💾 Descargar Informe en Texto (.txt)",
+            label="Descargar Informe en Texto (.txt)",
             data=report_txt,
             file_name=f"{file_slug}.txt",
             mime="text/plain",
@@ -2134,15 +2334,16 @@ elif menu in ["📝 Informe Semanal (Cuerpo Técnico)", "📝 Informe Táctico E
         )
     with col_btn2:
         st.download_button(
-            label="🖨️ Descargar Informe Imprimible / PDF (.html)",
+            label="Descargar Informe Ejecutivo (HTML / PDF)",
             data=report_html,
             file_name=f"{file_slug}.html",
             mime="text/html",
+            type="primary",
             use_container_width=True,
             help="Descarga el informe maquetado con diseño profesional listo para imprimir o guardar en PDF con Ctrl+P."
         )
 
-    with st.expander("📋 Ver Texto Completo del Informe (Listo para copiar y pegar):", expanded=False):
+    with st.expander("Ver Texto Completo del Informe (Copiar al portapapeles):", expanded=False):
         st.text_area("Contenido del Informe:", value=report_txt, height=350, key="weekly_report_copy_area")
 
     with st.expander("🔍 ¿Deseas ver el informe táctico de una sesión individual concreta?", expanded=False):
@@ -2158,11 +2359,17 @@ elif menu in ["📝 Informe Semanal (Cuerpo Técnico)", "📝 Informe Táctico E
 # VISTA: ASISTENTE DE IA (CUERPO TÉCNICO)
 # ==========================================
 elif menu == "🤖 Asistente de IA (Cuerpo Técnico)":
-    st.title("Asistente de IA para el Cuerpo Técnico")
-    st.markdown(
-        "Módulo de Inteligencia Artificial para análisis de rendimiento, comparativa de futbolistas en pugna posicional "
-        "y resolución de consultas técnico-tácticas mediante modelos LLM (Groq / Gemini)."
-    )
+    st.markdown("""
+    <div style="background: #1E293B; border: 1px solid #334155; border-radius: 12px; padding: 20px 24px; margin-bottom: 20px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);">
+        <div style="color: #38BDF8; font-size: 0.74rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Inteligencia Artificial Aplicada al Deporte</div>
+        <h2 style="color: #F8FAFC; margin: 3px 0 6px 0; font-size: 1.45rem; font-weight: 700; letter-spacing: -0.02em;">
+            Asistente de IA para el Cuerpo Técnico
+        </h2>
+        <div style="color: #94A3B8; font-size: 0.85rem; line-height: 1.5;">
+            Análisis de rendimiento individual y colectivo, contraste directo de futbolistas en pugna posicional y resolución de consultas fisiológicas en lenguaje natural mediante modelos LLM.
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
     import importlib
     import src.services.ai_assistant
@@ -2170,7 +2377,7 @@ elif menu == "🤖 Asistente de IA (Cuerpo Técnico)":
     from src.services.ai_assistant import AIAssistant
     ai_service = AIAssistant()
 
-    tab_ai1, tab_ai2 = st.tabs(["⚔️ Comparativa Directa de Futbolistas", "💬 Consulta a la Plantilla"])
+    tab_ai1, tab_ai2 = st.tabs(["Comparativa Directa de Futbolistas", "Consulta a la Plantilla"])
 
     with tab_ai1:
         st.subheader("Comparativa Fisiológica y Riesgo Lesional entre Jugadores")
@@ -2190,7 +2397,7 @@ elif menu == "🤖 Asistente de IA (Cuerpo Técnico)":
             id_a = player_dict[sel_p1]
             id_b = player_dict[sel_p2]
 
-            if st.button("🔍 Generar Comparativa de Rendimiento con IA", use_container_width=True):
+            if st.button("Generar Comparativa de Rendimiento", type="primary", use_container_width=True):
                 with st.spinner("Analizando historial de telemetría y generando dictamen técnico..."):
                     with get_db() as db:
                         ai_result = ai_service.compare_players(id_a, id_b, db)
@@ -2207,7 +2414,7 @@ elif menu == "🤖 Asistente de IA (Cuerpo Técnico)":
             placeholder="Ejemplo: ¿Qué jugadores superan el límite de riesgo de lesión tras la última sesión y cómo dosificamos su trabajo mañana?"
         )
 
-        if st.button("💡 Consultar al Asistente IA", use_container_width=True):
+        if st.button("Consultar al Asistente IA", type="primary", use_container_width=True):
             if user_query.strip():
                 with st.spinner("Consultando base de datos de telemetría e infiriendo respuesta..."):
                     with get_db() as db:
@@ -2221,12 +2428,17 @@ elif menu == "🤖 Asistente de IA (Cuerpo Técnico)":
 # VISTA: CONTROL DE CARGA INTERNA & REGISTRO RPE
 # ==========================================
 elif menu == "⏱️ Carga Interna & Registro RPE":
-    st.title("⏱️ Control de Carga Interna & Registro de RPE")
-    st.markdown(
-        "Protocolo de Percepción Subjetiva del Esfuerzo (Escala de Foster / Borg modificada 1-10). "
-        "Permite registrar la muestra de futbolistas encuestados post-entrenamiento (habitualmente entre 8 y 10 jugadores), "
-        "calcular el **RPE promedio de la sesión** y cuantificar la **Carga Interna individual (sRPE = RPE × Duración en min)**."
-    )
+    st.markdown("""
+    <div style="background: #1E293B; border: 1px solid #334155; border-radius: 12px; padding: 20px 24px; margin-bottom: 20px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);">
+        <div style="color: #38BDF8; font-size: 0.74rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Carga Interna &amp; Percepción de Esfuerzo</div>
+        <h2 style="color: #F8FAFC; margin: 3px 0 6px 0; font-size: 1.45rem; font-weight: 700; letter-spacing: -0.02em;">
+            Control de Carga Interna &bull; Registro RPE (Escala Foster)
+        </h2>
+        <div style="color: #94A3B8; font-size: 0.85rem; line-height: 1.5;">
+            Protocolo de Percepción Subjetiva del Esfuerzo (Borg modificada 1-10). Permite registrar la muestra de futbolistas post-entrenamiento, calcular el RPE promedio de la sesión y cuantificar la Carga Interna individual (sRPE = RPE &times; Duración en min).
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
     # 1. Selector de sesión
     cached_sessions = get_cached_sessions()
@@ -2494,8 +2706,17 @@ elif menu == "⏱️ Carga Interna & Registro RPE":
 # VISTA 4: INGESTA DE ARCHIVO UBIKO
 # ==========================================
 elif menu == "📥 Ingesta de Datos GPS (UBIKO)":
-    st.title("Ingesta y Procesamiento de Sesiones GPS UBIKO")
-    st.markdown("Sube una exportación de chalecos GPS UBIKO en formato **.xlsx** o **.csv** para integrarla en la base de datos.")
+    st.markdown("""
+    <div style="background: #1E293B; border: 1px solid #334155; border-radius: 12px; padding: 20px 24px; margin-bottom: 20px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);">
+        <div style="color: #38BDF8; font-size: 0.74rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Integración &amp; Telemetría UBIKO</div>
+        <h2 style="color: #F8FAFC; margin: 3px 0 6px 0; font-size: 1.45rem; font-weight: 700; letter-spacing: -0.02em;">
+            Ingesta y Procesamiento de Sesiones GPS UBIKO
+        </h2>
+        <div style="color: #94A3B8; font-size: 0.85rem; line-height: 1.5;">
+            Sube una exportación de chalecos GPS UBIKO en formato .xlsx o .csv o ejecuta la sincronización directa para consolidar la base de datos cloud.
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
     uploaded_file = st.file_uploader("Arrastra o selecciona el informe GPS:", type=["csv", "xlsx"])
 
@@ -2521,7 +2742,7 @@ elif menu == "📥 Ingesta de Datos GPS (UBIKO)":
             st.subheader("Previsualización de Columnas Mapeadas:")
             st.dataframe(df_parsed.head(8), width="stretch")
 
-            if st.button("🚀 Guardar Sesión en Base de Datos"):
+            if st.button("Guardar Sesión en Base de Datos", type="primary"):
                 with get_db() as db:
                     sess_name = f"{ingest_type} - {ingest_micro} ({ingest_date.strftime('%d/%m')})"
                     res = UbikoImporter.import_session_to_db(
@@ -2588,7 +2809,7 @@ elif menu == "📥 Ingesta de Datos GPS (UBIKO)":
         visible_browser = st.checkbox("Navegador visible", value=True, help="Recomendado activo para verificar el proceso o iniciar sesión.")
         force_sync_tab = st.checkbox("Forzar re-descarga", value=False, key="tab_force_sync")
 
-    if st.button("🚀 Iniciar Recopilación Masiva desde UBIKO Web"):
+    if st.button("Iniciar Recopilación Masiva desde UBIKO Web", type="primary"):
         with st.spinner(f"Conectando a UBIKO Web y recopilando todas las sesiones desde {sync_since_tab.strftime('%d/%m/%Y')}..."):
             try:
                 import importlib
@@ -2620,16 +2841,16 @@ elif menu == "📥 Ingesta de Datos GPS (UBIKO)":
 
     # Mantenimiento y Purga de Datos Falsos
     st.divider()
-    st.subheader("🧹 Mantenimiento de Base de Datos: Limpiar Datos Simulados")
+    st.markdown('<div class="metric-title" style="margin-bottom: 6px;">Mantenimiento: Depuración de Datos Simulados</div>', unsafe_allow_html=True)
     st.info(
         "Si generaste datos de prueba anteriormente y ahora deseas que Supabase contenga **exclusivamente** "
-        "las sesiones y métricas reales de UBIKO (eliminando cualquier registro falso para que porteros como Estepa y Luengo "
+        "las sesiones y métricas reales de UBIKO (eliminando cualquier registro simulado para que porteros como Estepa y Luengo "
         "no tengan datos ficticios de carrera), pulsa el botón a continuación. La plantilla de 26 jugadores y objetivos permanecerá intacta."
     )
-    if st.button("🗑️ Purgar Sesiones y Métricas Simuladas de Supabase", type="secondary"):
+    if st.button("Purgar Sesiones y Métricas Simuladas de Supabase", type="secondary"):
         from seed_data import purge_simulated_sessions_and_metrics
         n_s, n_m = purge_simulated_sessions_and_metrics()
-        st.success(f"¡Base de datos limpia! Se han eliminado {n_s} sesiones y {n_m} registros de métricas. Ya puedes sincronizar desde UBIKO.")
+        st.success(f"Base de datos depurada. Se han eliminado {n_s} sesiones y {n_m} registros de métricas simuladas.")
         st.rerun()
 
 
@@ -2637,11 +2858,17 @@ elif menu == "📥 Ingesta de Datos GPS (UBIKO)":
 # VISTA 5: OBJETIVOS DE CARGA FISIOLÓGICA
 # ==========================================
 elif menu == "⚙️ Objetivos de Carga Fisiológica":
-    st.title("Configuración de Objetivos de Carga por Microciclo")
-    st.markdown(
-        "Parámetros de referencia prescritos por el preparador físico para cada demarcación táctica según el día de la semana. "
-        "El sistema los utiliza como estándar para calcular el porcentaje de cumplimiento real de las tareas de entrenamiento."
-    )
+    st.markdown("""
+    <div style="background: #1E293B; border: 1px solid #334155; border-radius: 12px; padding: 20px 24px; margin-bottom: 20px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);">
+        <div style="color: #38BDF8; font-size: 0.74rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Periodización &amp; Metodología de Carga</div>
+        <h2 style="color: #F8FAFC; margin: 3px 0 6px 0; font-size: 1.45rem; font-weight: 700; letter-spacing: -0.02em;">
+            Configuración de Objetivos de Carga Fisiológica
+        </h2>
+        <div style="color: #94A3B8; font-size: 0.85rem; line-height: 1.5;">
+            Parámetros de referencia prescritos por el preparador físico para cada demarcación táctica según el día de la semana (MD-4 a MD+1). El sistema los utiliza como estándar para calcular el porcentaje de cumplimiento real de las tareas de entrenamiento.
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
     with get_db() as db:
         targets_all = db.query(TargetLoad).all()
