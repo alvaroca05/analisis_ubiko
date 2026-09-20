@@ -12,6 +12,7 @@ import time
 import streamlit as st
 import pandas as pd
 from sqlalchemy.orm import Session
+from typing import Optional, List, Dict, Any, Tuple
 
 # Asegurar la raíz del proyecto en el path de Python (crítico para Streamlit Cloud en Linux)
 BASE_DIR = Path(__file__).resolve().parent
@@ -41,6 +42,8 @@ try:
     import importlib
     import src.services.analytics
     importlib.reload(src.services.analytics)
+    import src.services.report_generator
+    importlib.reload(src.services.report_generator)
     from src.services.analytics import (
         calculate_session_summary,
         calculate_ewma_acwr,
@@ -64,11 +67,19 @@ try:
         get_weekly_microcycle_summary
     )
     from src.services.importer import UbikoImporter
-    from src.services.report_generator import (
-        generate_tactical_report,
-        generate_weekly_coach_report,
-        generate_weekly_coach_html_report
-    )
+    try:
+        from src.services.report_generator import (
+            generate_tactical_report,
+            generate_weekly_coach_report,
+            generate_weekly_coach_html_report
+        )
+    except (ImportError, AttributeError):
+        importlib.reload(src.services.report_generator)
+        from src.services.report_generator import (
+            generate_tactical_report,
+            generate_weekly_coach_report,
+            generate_weekly_coach_html_report
+        )
     from src.utils.helpers import (
         create_acwr_longitudinal_chart,
         create_compliance_chart,
@@ -412,11 +423,14 @@ def check_authentication() -> bool:
     if st.session_state.get("authenticated", False):
         return True
 
-    configured_pwd = (
-        st.secrets.get("APP_PASSWORD")
-        if hasattr(st, "secrets") and "APP_PASSWORD" in st.secrets
-        else os.environ.get("APP_PASSWORD", "ubiko2026")
-    )
+    try:
+        configured_pwd = (
+            st.secrets.get("APP_PASSWORD", "ubiko2026")
+            if hasattr(st, "secrets")
+            else os.environ.get("APP_PASSWORD", "ubiko2026")
+        )
+    except Exception:
+        configured_pwd = os.environ.get("APP_PASSWORD", "ubiko2026")
 
     col_l1, col_l2, col_l3 = st.columns([1, 1.8, 1])
     with col_l2:
