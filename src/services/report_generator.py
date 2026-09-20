@@ -177,3 +177,440 @@ def _get_next_day_recommendations(current_day: str, danger_players: list, underl
         recs.append(f"• Suplentes/No habituales: Programar serie compensatoria de carrera continua fraccionada a {names}.")
 
     return "\n".join(recs)
+
+
+# ==============================================================================
+# INFORME SEMANAL PARA EL PRIMER ENTRENADOR Y CUERPO TÉCNICO
+# ==============================================================================
+
+def generate_weekly_coach_report(summary: Dict[str, Any]) -> str:
+    """
+    Genera el informe ejecutivo semanal sintetizado en formato texto para el Primer Entrenador.
+    Desglosa:
+    1. Resumen del Microciclo (estímulo planificado vs. carga total acumulada).
+    2. Futbolistas en Estado Óptimo (ACWR 0.8 - 1.3).
+    3. Futbolistas en Déficit de Estímulo (para trabajo compensatorio pre/post partido).
+    4. Alertas de Fatiga y Riesgo Lesional (con recomendaciones tácticas/fisiológicas).
+    """
+    start_d = summary.get("start_date")
+    end_d = summary.get("end_date")
+    team_kpis = summary.get("team_kpis", {})
+    breakdown = summary.get("sessions_breakdown", [])
+    optimal = summary.get("optimal_players", [])
+    deficit = summary.get("deficit_players", [])
+    fatigue = summary.get("fatigue_alerts", [])
+
+    lines = []
+    lines.append("════════════════════════════════════════════════════════════════════════════════")
+    lines.append("           UBIKO HUB | INFORME SEMANAL PARA EL PRIMER ENTRENADOR                ")
+    lines.append(f"           Periodo Evaluado: {start_d} al {end_d}                              ")
+    lines.append(f"           Sesiones Integradas: {team_kpis.get('num_sessions', 0)} | Futbolistas: {team_kpis.get('players_monitored', 0)}")
+    lines.append("════════════════════════════════════════════════════════════════════════════════\n")
+
+    # 1. Resumen del Microciclo
+    lines.append("1. RESUMEN DEL MICROCICLO (ESTÍMULO PLANIFICADO VS. CARGA ACUMULADA)")
+    lines.append(f"• Distancia Total Acumulada (Media Plantilla): {team_kpis.get('team_mean_distance_km', 0.0):.2f} km")
+    lines.append(f"• Carrera de Alta Velocidad Acumulada (HSR >21 km/h): {team_kpis.get('team_mean_hsr_m', 0.0):.0f} m promedio")
+    lines.append(f"• Carga Neuromuscular Mecánica (AC.E Totales): {team_kpis.get('team_mean_eff', 0)} aceleraciones/frenadas promedio")
+    lines.append(f"• Tiempo Total de Trabajo de Campo: {team_kpis.get('total_team_duration', 0)} minutos\n")
+
+    lines.append("Desglose cronológico de sesiones:")
+    for s in breakdown:
+        lines.append(
+            f"  [{s['date'].strftime('%d/%m')} | {s['microcycle_day']} ({s['duration']}')]: "
+            f"DT: {s['mean_td_km']:.2f} km | HSR: {s['mean_hsr_m']:.0f}m | AC.E: {s['mean_eff']:.0f} | "
+            f"Foco: {s['stimulus']}"
+        )
+    lines.append("")
+
+    # 2. Futbolistas en Estado Óptimo
+    lines.append(f"2. FUTBOLISTAS EN ESTADO ÓPTIMO ({len(optimal)} jugadores)")
+    lines.append("Jugadores que alcanzaron las metas fisiológicas sin acumular sobrecarga (ACWR en Sweet Spot 0.80 - 1.30):")
+    if optimal:
+        for p in optimal:
+            acwr_str = f"ACWR: {p['acwr']:.2f}" if p['acwr'] is not None else "ACWR: N/D"
+            lines.append(
+                f"  ✓ #{p['dorsal']} {p['name']} ({p['position']}): "
+                f"DT: {p['tot_km']:.1f} km | HSR: {p['tot_hsr']:.0f}m | AC.E: {p['tot_eff']} | {p['tot_mins']:.0f}' jugados | {acwr_str}"
+            )
+    else:
+        lines.append("  (Ningún futbolista encaja exactamente en el rango óptimo)")
+    lines.append("")
+
+    # 3. Futbolistas en Déficit de Estímulo
+    lines.append(f"3. FUTBOLISTAS EN DÉFICIT DE ESTÍMULO ({len(deficit)} jugadores)")
+    lines.append("Jugadores con estímulo semanal insuficiente (suplentes, pocos minutos o ACWR < 0.80). Planificar compensatorio:")
+    if deficit:
+        for p in deficit:
+            acwr_str = f"ACWR: {p['acwr']:.2f}" if p['acwr'] is not None else "ACWR: N/D"
+            lines.append(f"  • #{p['dorsal']} {p['name']} ({p['position']}) | {p['tot_mins']:.0f}' jugados | {acwr_str}")
+            lines.append(f"    - Motivo: {p.get('deficit_reasons', 'Baja carga')}")
+            lines.append(f"    - {p.get('compensatory_plan', 'Programar compensatorio post-partido.')}")
+    else:
+        lines.append("  ✓ Todos los futbolistas alcanzaron los umbrales mínimos requeridos.")
+    lines.append("")
+
+    # 4. Alertas de Fatiga y Riesgo Lesional
+    lines.append(f"4. ALERTAS DE FATIGA Y RIESGO LESIONAL ({len(fatigue)} jugadores)")
+    lines.append("Jugadores con fatiga acumulada crítica (ACWR > 1.35 o picos agudos). Directrices para el Míster:")
+    if fatigue:
+        for p in fatigue:
+            acwr_str = f"ACWR: {p['acwr']:.2f}" if p['acwr'] is not None else "ACWR: N/D"
+            lines.append(f"  ⚠️ #{p['dorsal']} {p['name']} ({p['position']}) | AC.E: {p['tot_eff']} | {acwr_str}")
+            lines.append(f"    - Causa: {p.get('alert_reasons', 'Sobrecarga aguda')}")
+            lines.append(f"    - {p.get('recommendation', 'Dosificar minutos o descanso activo.')}")
+    else:
+        lines.append("  ✓ Ningún jugador en zona de fatiga crítica o riesgo lesional agudo.")
+    lines.append("")
+
+    lines.append("════════════════════════════════════════════════════════════════════════════════")
+    lines.append("Informe generado automáticamente por UBIKO Hub | Preparación Física & Rendimiento")
+    lines.append("════════════════════════════════════════════════════════════════════════════════")
+
+    return "\n".join(lines)
+
+
+def generate_weekly_coach_html_report(summary: Dict[str, Any]) -> str:
+    """
+    Genera un informe HTML imprimible de alta fidelidad estética (preparado para impresión A4 o guardado en PDF).
+    """
+    start_d = summary.get("start_date")
+    end_d = summary.get("end_date")
+    team_kpis = summary.get("team_kpis", {})
+    breakdown = summary.get("sessions_breakdown", [])
+    optimal = summary.get("optimal_players", [])
+    deficit = summary.get("deficit_players", [])
+    fatigue = summary.get("fatigue_alerts", [])
+
+    # Construir filas de sesiones
+    session_rows = ""
+    for s in breakdown:
+        session_rows += f"""
+        <tr>
+            <td style="font-weight: bold; color: #1E293B;">{s['date'].strftime('%d/%m/%Y')}</td>
+            <td><span class="badge badge-gray">{s['microcycle_day']}</span></td>
+            <td>{s['session_type']}</td>
+            <td>{s['duration']}'</td>
+            <td><strong>{s['mean_td_km']:.2f} km</strong></td>
+            <td>{s['mean_hsr_m']:.0f} m</td>
+            <td>{s['mean_eff']:.0f}</td>
+            <td style="font-size: 0.85rem; color: #475569;">{s['stimulus']}</td>
+        </tr>
+        """
+
+    # Construir tarjetas de óptimos
+    optimal_cards = ""
+    for p in optimal:
+        acwr_badge = f"{p['acwr']:.2f}" if p['acwr'] is not None else "N/D"
+        optimal_cards += f"""
+        <div class="player-card optimal-border">
+            <div class="player-header">
+                <strong>#{p['dorsal']} {p['name']}</strong>
+                <span class="badge badge-green">ACWR: {acwr_badge}</span>
+            </div>
+            <div class="player-metrics">
+                <span>Pos: {p['position']}</span> |
+                <span>DT: {p['tot_km']:.1f} km</span> |
+                <span>HSR: {p['tot_hsr']:.0f} m</span> |
+                <span>AC.E: {p['tot_eff']}</span> |
+                <span>Min: {p['tot_mins']:.0f}' ({p['sessions_count']} ses.)</span>
+            </div>
+            <div class="player-note" style="color: #065F46;">
+                ✓ {p.get('optimal_note', 'Apto al 100%')}
+            </div>
+        </div>
+        """
+
+    # Construir tarjetas de déficit
+    deficit_cards = ""
+    for p in deficit:
+        acwr_badge = f"{p['acwr']:.2f}" if p['acwr'] is not None else "N/D"
+        deficit_cards += f"""
+        <div class="player-card deficit-border">
+            <div class="player-header">
+                <strong>#{p['dorsal']} {p['name']}</strong>
+                <span class="badge badge-blue">ACWR: {acwr_badge}</span>
+            </div>
+            <div class="player-metrics">
+                <span>Pos: {p['position']}</span> |
+                <span>DT: {p['tot_km']:.1f} km</span> |
+                <span>HSR: {p['tot_hsr']:.0f} m</span> |
+                <span>AC.E: {p['tot_eff']}</span> |
+                <span>Min: {p['tot_mins']:.0f}'</span>
+            </div>
+            <div class="player-reason"><strong>Déficit:</strong> {p.get('deficit_reasons', 'Bajo minutaje')}</div>
+            <div class="player-rec" style="color: #1E40AF;"><strong>Propuesta:</strong> {p.get('compensatory_plan', 'Planificar compensatorio')}</div>
+        </div>
+        """
+
+    # Construir tarjetas de fatiga
+    fatigue_cards = ""
+    for p in fatigue:
+        acwr_badge = f"{p['acwr']:.2f}" if p['acwr'] is not None else "N/D"
+        fatigue_cards += f"""
+        <div class="player-card fatigue-border">
+            <div class="player-header">
+                <strong style="color: #991B1B;">⚠️ #{p['dorsal']} {p['name']}</strong>
+                <span class="badge badge-red">ACWR: {acwr_badge}</span>
+            </div>
+            <div class="player-metrics">
+                <span>Pos: {p['position']}</span> |
+                <span>DT: {p['tot_km']:.1f} km</span> |
+                <span>HSR: {p['tot_hsr']:.0f} m</span> |
+                <span>AC.E: {p['tot_eff']}</span> |
+                <span>Min: {p['tot_mins']:.0f}'</span>
+            </div>
+            <div class="player-reason" style="color: #B91C1C;"><strong>Alerta:</strong> {p.get('alert_reasons', 'Fatiga crítica')}</div>
+            <div class="player-rec" style="color: #9A3412;"><strong>Recomendación al Míster:</strong> {p.get('recommendation', 'Dosificar minutaje')}</div>
+        </div>
+        """
+
+    html = f"""<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>UBIKO Hub | Informe Semanal para el Primer Entrenador</title>
+    <style>
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 24px;
+            background-color: #F8FAFC;
+            color: #1E293B;
+            line-height: 1.5;
+        }}
+        .container {{
+            max-width: 1050px;
+            margin: 0 auto;
+            background: #FFFFFF;
+            padding: 32px 40px;
+            border-radius: 12px;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+        }}
+        .header {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 3px solid #0284C7;
+            padding-bottom: 16px;
+            margin-bottom: 24px;
+        }}
+        .header h1 {{
+            margin: 0;
+            font-size: 1.6rem;
+            color: #0F172A;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }}
+        .header p {{
+            margin: 4px 0 0 0;
+            color: #64748B;
+            font-size: 0.95rem;
+        }}
+        .btn-print {{
+            background-color: #0284C7;
+            color: white;
+            border: none;
+            padding: 10px 18px;
+            border-radius: 6px;
+            font-weight: 600;
+            cursor: pointer;
+            font-size: 0.9rem;
+        }}
+        .kpi-grid {{
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+            margin-bottom: 28px;
+        }}
+        .kpi-card {{
+            background: #F1F5F9;
+            padding: 14px 18px;
+            border-radius: 8px;
+            border-left: 4px solid #0284C7;
+        }}
+        .kpi-title {{
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            color: #64748B;
+            font-weight: 600;
+        }}
+        .kpi-value {{
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #0F172A;
+            margin-top: 4px;
+        }}
+        .section-title {{
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: #0F172A;
+            border-bottom: 2px solid #E2E8F0;
+            padding-bottom: 8px;
+            margin: 28px 0 16px 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }}
+        table {{
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+            margin-bottom: 20px;
+        }}
+        th, td {{
+            padding: 10px 12px;
+            text-align: left;
+            border-bottom: 1px solid #E2E8F0;
+        }}
+        th {{
+            background-color: #F8FAFC;
+            color: #475569;
+            font-weight: 600;
+        }}
+        .badge {{
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 0.78rem;
+            font-weight: 600;
+        }}
+        .badge-green {{ background-color: #DCFCE7; color: #166534; }}
+        .badge-blue {{ background-color: #DBEAFE; color: #1E40AF; }}
+        .badge-red {{ background-color: #FEE2E2; color: #991B1B; }}
+        .badge-gray {{ background-color: #E2E8F0; color: #334155; }}
+        .player-grid {{
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+        }}
+        .player-card {{
+            background: #FFFFFF;
+            border: 1px solid #E2E8F0;
+            border-radius: 8px;
+            padding: 12px 16px;
+        }}
+        .optimal-border {{ border-left: 4px solid #10B981; background: #F0FDF4; }}
+        .deficit-border {{ border-left: 4px solid #3B82F6; background: #EFF6FF; }}
+        .fatigue-border {{ border-left: 4px solid #EF4444; background: #FEF2F2; }}
+        .player-header {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 6px;
+        }}
+        .player-metrics {{
+            font-size: 0.85rem;
+            color: #475569;
+            margin-bottom: 6px;
+        }}
+        .player-reason, .player-rec, .player-note {{
+            font-size: 0.83rem;
+            margin-top: 4px;
+            line-height: 1.4;
+        }}
+        .footer {{
+            margin-top: 36px;
+            padding-top: 16px;
+            border-top: 1px solid #E2E8F0;
+            text-align: center;
+            font-size: 0.82rem;
+            color: #94A3B8;
+        }}
+        @media print {{
+            body {{ background: #FFF; padding: 0; }}
+            .container {{ box-shadow: none; padding: 0; max-width: 100%; }}
+            .btn-print {{ display: none !important; }}
+            .player-card {{ break-inside: avoid; }}
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div>
+                <h1>Informe Semanal del Cuerpo Técnico</h1>
+                <p>Periodo competitivo: <strong>{start_d} al {end_d}</strong> | Preparación Física & Rendimiento</p>
+            </div>
+            <button class="btn-print" onclick="window.print()">🖨️ Imprimir / Guardar PDF</button>
+        </div>
+
+        <!-- Tarjetas KPI Globales -->
+        <div class="kpi-grid">
+            <div class="kpi-card">
+                <div class="kpi-title">Distancia Media Acumulada</div>
+                <div class="kpi-value">{team_kpis.get('team_mean_distance_km', 0.0):.2f} km</div>
+            </div>
+            <div class="kpi-card" style="border-left-color: #10B981;">
+                <div class="kpi-title">HSR Medio (>21 km/h)</div>
+                <div class="kpi-value">{team_kpis.get('team_mean_hsr_m', 0.0):.0f} m</div>
+            </div>
+            <div class="kpi-card" style="border-left-color: #F59E0B;">
+                <div class="kpi-title">Carga Neuromuscular (AC.E)</div>
+                <div class="kpi-value">{team_kpis.get('team_mean_eff', 0)} esfuerzos</div>
+            </div>
+            <div class="kpi-card" style="border-left-color: #8B5CF6;">
+                <div class="kpi-title">Sesiones Monitorizadas</div>
+                <div class="kpi-value">{team_kpis.get('num_sessions', 0)} ({team_kpis.get('total_team_duration', 0)}')</div>
+            </div>
+        </div>
+
+        <!-- 1. Desglose del Microciclo -->
+        <div class="section-title">
+            <span>1. Resumen y Desglose Diario del Microciclo</span>
+            <span style="font-size: 0.85rem; color: #64748B; font-weight: normal;">Estímulo planificado vs. carga real</span>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Fecha</th>
+                    <th>Día</th>
+                    <th>Tipo</th>
+                    <th>Duración</th>
+                    <th>DT Media</th>
+                    <th>HSR Medio</th>
+                    <th>AC.E Medio</th>
+                    <th>Estímulo Principal</th>
+                </tr>
+            </thead>
+            <tbody>
+                {session_rows}
+            </tbody>
+        </table>
+
+        <!-- 2. Futbolistas en Estado Óptimo -->
+        <div class="section-title">
+            <span style="color: #15803D;">2. Futbolistas en Estado Óptimo ({len(optimal)})</span>
+            <span class="badge badge-green">Sweet Spot 0.80 - 1.30</span>
+        </div>
+        <div class="player-grid">
+            {optimal_cards if optimal else '<p style="color: #64748B;">Sin futbolistas en este rango.</p>'}
+        </div>
+
+        <!-- 3. Futbolistas en Déficit de Estímulo -->
+        <div class="section-title">
+            <span style="color: #1E40AF;">3. Futbolistas en Déficit de Estímulo ({len(deficit)})</span>
+            <span class="badge badge-blue">Plan de Trabajo Compensatorio</span>
+        </div>
+        <div class="player-grid">
+            {deficit_cards if deficit else '<p style="color: #64748B;">Ningún jugador en déficit.</p>'}
+        </div>
+
+        <!-- 4. Alertas de Fatiga y Riesgo Lesional -->
+        <div class="section-title">
+            <span style="color: #B91C1C;">4. Alertas de Fatiga y Riesgo Lesional ({len(fatigue)})</span>
+            <span class="badge badge-red">Directrices para el Primer Entrenador</span>
+        </div>
+        <div class="player-grid">
+            {fatigue_cards if fatigue else '<p style="color: #64748B;">Plantilla sin alertas críticas de sobrecarga.</p>'}
+        </div>
+
+        <div class="footer">
+            Generado automáticamente por UBIKO Hub | Plataforma de Rendimiento Táctico & GPS | Universidad de Córdoba
+        </div>
+    </div>
+</body>
+</html>"""
+
+    return html
+

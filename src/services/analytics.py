@@ -9,7 +9,7 @@ Implementa:
 """
 
 from collections import defaultdict
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from types import SimpleNamespace
 from typing import Dict, List, Optional, Tuple, Any
 import numpy as np
@@ -391,19 +391,20 @@ def sync_and_update_player_match_peaks(db: Session, club_id: int = DEFAULT_CLUB_
 
     def _calc_demand_score(m):
         return (
-            (m.total_distance or 0.0) * 0.35 +
+            (m.total_distance or 0.0) * 0.30 +
             (m.hsr_distance or 0.0) * 0.25 +
-            ((m.accelerations_eff or 0) + (m.decelerations_eff or 0)) * 15.0
+            (m.sprint_distance or 0.0) * 0.20 +
+            ((m.accelerations_eff or 0) + (m.decelerations_eff or 0)) * 20.0
         )
 
     for p in players:
         current_peak = existing_peaks.get(p.id)
         p_match_metrics = match_metrics_by_player.get(p.id, [])
 
-        # Partidos donde disputó minutos significativos (>= 5000m y >= 45 min)
+        # Partidos donde disputó minutos significativos (>= 3000m y >= 30 min)
         full_matches = [
             m for m in p_match_metrics
-            if (m.total_distance or 0) >= 5000 and (m.minutes_played or 0) >= 45
+            if (m.total_distance or 0) >= 3000 and (m.minutes_played or 0) >= 30
         ]
 
         if full_matches:
@@ -423,10 +424,14 @@ def sync_and_update_player_match_peaks(db: Session, club_id: int = DEFAULT_CLUB_
             max_dec = int(best_metric.decelerations_eff or 0)
             max_vmax = max(float(best_metric.max_speed or 0.0), p.max_speed_kmh or 30.0)
         else:
-            # Caso 2: No ha jugado o ha jugado pocos minutos -> Usar el entrenamiento con mayor exigencia física
+            # Caso 2: No ha jugado >=30 min en liga -> Usar su entrenamiento con mayor exigencia física (pico AC.E / carga metabólica)
             train_metrics = train_metrics_by_player.get(p.id, [])
-            if train_metrics:
-                best_tm, best_ts = max(train_metrics, key=lambda pair: _calc_demand_score(pair[0]))
+            valid_train = [
+                pair for pair in train_metrics
+                if (pair[0].total_distance or 0) >= 2000 and (pair[0].minutes_played or 0) >= 25
+            ]
+            if valid_train:
+                best_tm, best_ts = max(valid_train, key=lambda pair: _calc_demand_score(pair[0]))
                 sess_name = f"Entreno {best_ts.microcycle_day} ({best_ts.date.strftime('%d/%m/%Y')})"
                 sess_date = best_ts.date
                 sess_type = "Entrenamiento"
@@ -1393,10 +1398,7 @@ def get_match_reference_table_data(
         # Extraer métricas reales de la sesión de partido seleccionada
         metrics = (
             db.query(
-                Player.id.label("player_id"),
-                Player.dorsal,
-                Player.name.label("player_name"),
-                Player.position,
+                PlayerMetric.player_id,
                 PlayerMetric.minutes_played,
                 PlayerMetric.total_distance,
                 PlayerMetric.max_speed,
@@ -1405,24 +1407,73 @@ def get_match_reference_table_data(
                 PlayerMetric.accelerations_eff,
                 PlayerMetric.decelerations_eff
             )
-            .join(PlayerMetric, Player.id == PlayerMetric.player_id)
-            .filter(PlayerMetric.session_id == session_id, Player.club_id == club_id)
+            .filter(PlayerMetric.session_id == session_id)
             .all()
         )
+        metrics_by_player = {m.player_id: m for m in metrics}
 
-        for m in metrics:
-            pos_norm = m.position.upper().strip()
+        # Cargar todos los futbolistas activos y mapa de techos de máxima exigencia para fallback
+        all_players = (
+            db.query(Player)
+            .filter(Player.club_id == club_id, Player.active == True)
+            .order_by(Player.dorsal.asc())
+            .all()
+        )
+        peaks_map = {
+            pk.player_id: pk
+            for pk in db.query(PlayerMatchPeak).filter(PlayerMatchPeak.club_id == club_id).all()
+        }
+        if not peaks_map:
+            sync_and_update_player_match_peaks(db, club_id=club_id)
+            peaks_map = {
+                pk.player_id: pk
+                for pk in db.query(PlayerMatchPeak).filter(PlayerMatchPeak.club_id == club_id).all()
+            }
+
+        for p in all_players:
+            pos_norm = p.position.upper().strip() if p.position else ""
             if pos_norm == "PORTERO":
                 continue
 
-            td_m = float(m.total_distance or 0.0)
-            hsr_m = float(m.hsr_distance or 0.0)
-            vmax = float(m.max_speed or 0.0)
-            mins = float(m.minutes_played or 0.0)
-            acc = int(m.accelerations_eff or 0)
-            dec = int(m.decelerations_eff or 0)
+            m = metrics_by_player.get(p.id)
+            # Si jugó >= 30 min y >= 3000m en este partido, tomar datos reales de partido
+            if m is not None and (m.minutes_played or 0) >= 30 and (m.total_distance or 0) >= 3000:
+                td_m = float(m.total_distance or 0.0)
+                hsr_m = float(m.hsr_distance or 0.0)
+                vmax = float(m.max_speed or 0.0)
+                mins = float(m.minutes_played or 0.0)
+                acc = int(m.accelerations_eff or 0)
+                dec = int(m.decelerations_eff or 0)
+                raw_sp = float(m.sprint_distance or 0.0)
+                sess_type = "Partido"
+                base_source = f"⚽ Partido ({mins:.0f}')"
+            else:
+                # Suplente (<30 min) o no convocado: Fallback al Techo Dinámico de Entrenamiento
+                pk = peaks_map.get(p.id)
+                if pk and (pk.peak_td or 0) >= 3000.0:
+                    td_m = float(pk.peak_td or 0.0)
+                    hsr_m = float(pk.peak_hsr or 0.0)
+                    vmax = float(pk.peak_max_speed or 0.0)
+                    mins = float(pk.peak_minutes or 70.0)
+                    acc = int(pk.peak_acc_eff or 0)
+                    dec = int(pk.peak_dec_eff or 0)
+                    raw_sp = float(pk.peak_sprint or 0.0)
+                    sess_type = pk.peak_session_type or "Entrenamiento"
+                    if m is not None and (m.minutes_played or 0) > 0:
+                        base_source = f"🏃 Techo Entreno (Suplente {float(m.minutes_played):.0f}')"
+                    else:
+                        base_source = "🏃 Techo Entreno (No convocado)"
+                else:
+                    td_m = 9500.0 if "CENTRAL" in pos_norm else 10200.0
+                    hsr_m = 400.0
+                    vmax = float(p.max_speed_kmh or 31.0)
+                    mins = 90.0
+                    acc = 50
+                    dec = 50
+                    raw_sp = 120.0
+                    sess_type = "Teórico"
+                    base_source = "📋 Techo Posicional"
 
-            raw_sp = float(m.sprint_distance or 0.0)
             if raw_sp <= 35.0:
                 sprints_cnt = int(raw_sp)
                 sprint_m = round(raw_sp * 18.0, 1)
@@ -1431,7 +1482,6 @@ def get_match_reference_table_data(
                 sprints_cnt = max(1, int(round(raw_sp / 18.0))) if raw_sp > 0 else 0
 
             # Índice de rendimiento físico ponderado (Score de Exigencia Competitiva)
-            # Equilibra volumen global (DT 35%), alta velocidad (HSR 25%), sprint (20%) y carga neuromuscular (20%)
             perf_score = (
                 (td_m / 10000.0) * 0.35 +
                 (hsr_m / 450.0) * 0.25 +
@@ -1440,13 +1490,13 @@ def get_match_reference_table_data(
             )
 
             players_data.append({
-                "player_id": m.player_id,
-                "dorsal": m.dorsal,
-                "player_name": m.player_name,
-                "position_raw": m.position,
+                "player_id": p.id,
+                "dorsal": p.dorsal,
+                "player_name": p.name,
+                "position_raw": p.position,
                 "position": pos_norm,
-                "session_type": "Partido",
-                "base_source": f"⚽ Partido ({mins:.0f}')" if mins > 0 else "Sin minutos",
+                "session_type": sess_type,
+                "base_source": base_source,
                 "minutes": mins,
                 "total_distance_m": td_m,
                 "distance_km": round(td_m / 1000.0, 2),
@@ -2001,19 +2051,34 @@ def get_post_session_multivariable_table(
         comp_dec = (real_dec / tgt["min_dec"] * 100.0) if tgt["min_dec"] > 0 else 0.0
         comp_eff = ((real_acc + real_dec) / (tgt["min_acc"] + tgt["min_dec"]) * 100.0) if (tgt["min_acc"] + tgt["min_dec"]) > 0 else 0.0
 
-        # Diagnóstico multivariable
+        # Diagnóstico de estímulo según la jerarquía metodológica del día de microciclo:
+        # * MD-4: La métrica crítica es % AC.E (% ACC / % DCC), NO la distancia (% DT).
+        # * MD-3: La métrica crítica es % DT.
+        # * MD-2: La métrica crítica es % HSR y % Sprint.
+        if day == "MD-4":
+            crit_metric = "AC.E"
+            comp_eval = comp_eff
+        elif day == "MD-3":
+            crit_metric = "DT"
+            comp_eval = comp_td
+        elif day == "MD-2":
+            crit_metric = "HSR/Sprint"
+            comp_eval = max(comp_hsr, comp_sprint) if comp_sprint > 0 else comp_hsr
+        else:
+            crit_metric = "DT"
+            comp_eval = comp_td
+
         if level is not None:
-            avg_comp = (comp_td + comp_hsr + comp_eff) / 3.0
-            if avg_comp < 80.0:
-                diag = f"🔴 Déficit ({avg_comp:.0f}% de meta {level}%)"
+            if comp_eval < 80.0:
+                diag = f"🔴 Déficit {crit_metric} ({comp_eval:.0f}% de meta {level}%)"
                 status = "Déficit"
                 color_hex = "#EF4444"
-            elif avg_comp > 115.0:
-                diag = f"🟠 Sobre-estímulo ({avg_comp:.0f}% de meta {level}%)"
+            elif comp_eval > 115.0:
+                diag = f"🟠 Sobre-estímulo {crit_metric} ({comp_eval:.0f}% de meta {level}%)"
                 status = "Sobre-estímulo"
                 color_hex = "#F59E0B"
             else:
-                diag = f"🟢 Cumplido ({avg_comp:.0f}%)"
+                diag = f"🟢 Cumplido {crit_metric} ({comp_eval:.0f}%)"
                 status = "Óptimo"
                 color_hex = "#10B981"
         else:
@@ -2283,6 +2348,348 @@ def classify_session_player_states(
         },
         "players_summary": all_summary
     }
+
+
+# ==============================================================================
+# 9. INFORME SEMANAL PARA EL PRIMER ENTRENADOR (AGRUPACIÓN POR MICROCICLOS)
+# ==============================================================================
+
+def get_available_microcycles(db: Session, club_id: int = DEFAULT_CLUB_ID) -> List[Dict[str, Any]]:
+    """
+    Detecta y agrupa los microciclos competitivos de la temporada a partir de los partidos oficiales de Liga:
+    Cada microciclo abarca desde el día posterior al partido anterior (MD+1/MD-4) hasta el día de partido (MD).
+    """
+    all_sessions = (
+        db.query(TrainingSession)
+        .filter(TrainingSession.club_id == club_id)
+        .order_by(TrainingSession.date.asc())
+        .all()
+    )
+    if not all_sessions:
+        return []
+
+    matches = [s for s in all_sessions if is_official_league_match(s)]
+    
+    # Desduplicar partidos por fecha (para evitar duplicados por re-importaciones)
+    unique_matches_by_date = {}
+    for m in matches:
+        if m.date not in unique_matches_by_date or m.id > unique_matches_by_date[m.date].id:
+            unique_matches_by_date[m.date] = m
+    unique_matches = sorted(unique_matches_by_date.values(), key=lambda x: x.date)
+
+    microcycles = []
+    for idx, match in enumerate(unique_matches):
+        if idx > 0:
+            start_date = unique_matches[idx - 1].date + timedelta(days=1)
+        else:
+            start_date = match.date - timedelta(days=6)
+        end_date = match.date
+
+        rival = "Partido Oficial"
+        name_clean = (match.name or "").replace("Partido fútbol 11'", "").replace("Partido futbol 11'", "")
+        if "contra" in name_clean.lower():
+            rival = name_clean.lower().split("contra")[-1].replace("_total", "").split("_")[0].strip().title()
+        else:
+            rival = name_clean.strip() or "Competición"
+
+        lbl = f"Microciclo vs {rival} ({start_date.strftime('%d/%m')} - {end_date.strftime('%d/%m/%Y')})"
+        microcycles.append({
+            "id": f"micro_{match.id}",
+            "label": lbl,
+            "start_date": start_date,
+            "end_date": end_date,
+            "match_name": match.name,
+            "match_id": match.id,
+            "rival": rival
+        })
+
+    # Ordenar los microciclos del más reciente al más antiguo para comodidad del cuerpo técnico
+    microcycles.reverse()
+
+    # Añadir opción de últimos 7 días como comodín dinámico
+    today = date.today()
+    microcycles.append({
+        "id": "last_7_days",
+        "label": f"📅 Últimos 7 Días ({ (today - timedelta(days=6)).strftime('%d/%m') } - { today.strftime('%d/%m/%Y') })",
+        "start_date": today - timedelta(days=6),
+        "end_date": today,
+        "match_name": "Ventana Móvil 7 Días",
+        "match_id": None,
+        "rival": "Ventana Reciente"
+    })
+
+    return microcycles
+
+
+def get_weekly_microcycle_summary(
+    db: Session,
+    start_date: date,
+    end_date: date,
+    club_id: int = DEFAULT_CLUB_ID
+) -> Dict[str, Any]:
+    """
+    Genera el desglose completo del microciclo semanal para el Primer Entrenador:
+    1. Resumen del Microciclo: Estímulo principal planificado vs. carga total acumulada (DT, HSR, AC.E y desglose diario).
+    2. Futbolistas en Estado Óptimo: Cumplieron metas sin sobrecarga (ACWR 0.8 - 1.3).
+    3. Futbolistas en Déficit de Estímulo: Suplentes / No convocados / Subentrenados con propuesta de compensatorio pre/post partido.
+    4. Alertas de Fatiga y Riesgo Lesional: Jugadores con fatiga crítica (ACWR > 1.35 o picos agudos) con recomendaciones tácticas.
+    """
+    sessions = (
+        db.query(TrainingSession)
+        .filter(
+            TrainingSession.club_id == club_id,
+            TrainingSession.date >= start_date,
+            TrainingSession.date <= end_date
+        )
+        .order_by(TrainingSession.date.asc(), TrainingSession.id.asc())
+        .all()
+    )
+
+    if not sessions:
+        return {
+            "start_date": start_date,
+            "end_date": end_date,
+            "sessions_count": 0,
+            "sessions_breakdown": [],
+            "team_kpis": {},
+            "optimal_players": [],
+            "deficit_players": [],
+            "fatigue_alerts": [],
+            "all_players": []
+        }
+
+    # Desduplicar sesiones por (date, microcycle_day) para evitar duplicación de cargas si un CSV se importó 2 veces
+    sessions_by_day = {}
+    for s in sessions:
+        key = (s.date, s.microcycle_day)
+        if key not in sessions_by_day or s.id > sessions_by_day[key].id:
+            sessions_by_day[key] = s
+    unique_sessions = sorted(sessions_by_day.values(), key=lambda x: x.date)
+
+    # 1. ACWR al corte del microciclo (usando end_date)
+    df_acwr = get_latest_player_acwr(db, target_date=end_date, club_id=club_id)
+    acwr_by_player = {}
+    if not df_acwr.empty:
+        for _, r in df_acwr.iterrows():
+            acwr_by_player[r["player_id"]] = {
+                "acwr": r["acwr"],
+                "status": r["acwr_status"],
+                "color": r["acwr_color"],
+                "acute": r.get("acute_load", 0.0),
+                "chronic": r.get("chronic_load", 0.0)
+            }
+
+    # 2. Desglose de cada sesión del microciclo y cálculo de KPIs de equipo
+    sessions_breakdown = []
+    tot_team_td_m = 0.0
+    tot_team_hsr_m = 0.0
+    tot_team_eff = 0
+    tot_team_duration = 0
+
+    p_stats = defaultdict(lambda: {
+        "td_m": 0.0, "hsr_m": 0.0, "sprint_m": 0.0,
+        "acc": 0, "dec": 0, "eff": 0, "mins": 0.0,
+        "sessions_count": 0, "played_match": False, "match_mins": 0.0
+    })
+
+    for s in unique_sessions:
+        mets = db.query(PlayerMetric).filter(PlayerMetric.session_id == s.id).all()
+        is_match = (s.session_type == "Partido" or s.microcycle_day == "MD")
+        n_p = len(mets)
+        mean_td = (sum((m.total_distance or 0.0) for m in mets) / n_p) if n_p > 0 else 0.0
+        mean_hsr = (sum((m.hsr_distance or 0.0) for m in mets) / n_p) if n_p > 0 else 0.0
+        mean_eff = (sum(((m.accelerations_eff or 0) + (m.decelerations_eff or 0)) for m in mets) / n_p) if n_p > 0 else 0.0
+        dur = s.duration_minutes or (90 if is_match else 75)
+
+        tot_team_td_m += mean_td
+        tot_team_hsr_m += mean_hsr
+        tot_team_eff += int(mean_eff)
+        tot_team_duration += dur
+
+        day_str = s.microcycle_day.upper().strip() if s.microcycle_day else ""
+        if day_str == "MD-4":
+            stimulus = "⚡ Tensión Neuromuscular y Espacios Reducidos (AC.E y aceleraciones cortas)"
+            planned_foco = "Carga neuromuscular alta / Volumen controlado"
+        elif day_str == "MD-3":
+            stimulus = "🏃 Resistencia y Volumen Competitivo (Distancia Total y capacidad aeróbica)"
+            planned_foco = "Pico de volumen semanal (DT) en espacios amplios"
+        elif day_str == "MD-2":
+            stimulus = "🚀 Velocidad y Reactividad Neuromuscular (HSR >21 km/h y Sprint)"
+            planned_foco = "Estimulación de alta velocidad y activación táctica"
+        elif day_str == "MD-1":
+            stimulus = "🎯 Activación Prepartido y Balón Parado (Volumen reducido)"
+            planned_foco = "Sesión corta, baja fatiga residual y pelota parada"
+        elif day_str == "MD+1":
+            stimulus = "🔄 Recuperación activa titulares / Compensatorio no titulares"
+            planned_foco = "Regeneración metabólica y compensación para suplentes"
+        elif is_match:
+            stimulus = "🏟️ Competición Oficial de Liga (100% Exigencia)"
+            planned_foco = "Máxima exigencia individual y competitiva"
+        else:
+            stimulus = "⚽ Entrenamiento General"
+            planned_foco = "Trabajo técnico-táctico coordinado"
+
+        sessions_breakdown.append({
+            "session_id": s.id,
+            "date": s.date,
+            "microcycle_day": s.microcycle_day,
+            "session_type": s.session_type,
+            "name": s.name,
+            "duration": dur,
+            "players_count": n_p,
+            "mean_td_m": round(mean_td, 1),
+            "mean_td_km": round(mean_td / 1000.0, 2),
+            "mean_hsr_m": round(mean_hsr, 1),
+            "mean_eff": round(mean_eff, 1),
+            "stimulus": stimulus,
+            "planned_foco": planned_foco
+        })
+
+        for m in mets:
+            pid = m.player_id
+            td = float(m.total_distance or 0.0)
+            hsr = float(m.hsr_distance or 0.0)
+            raw_sp = float(m.sprint_distance or 0.0)
+            sp_m = round(raw_sp * 18.0, 1) if raw_sp <= 35.0 else round(raw_sp, 1)
+            acc_c = int(m.accelerations_eff or 0)
+            dec_c = int(m.decelerations_eff or 0)
+            mins_c = float(m.minutes_played or 0.0)
+
+            p_stats[pid]["td_m"] += td
+            p_stats[pid]["hsr_m"] += hsr
+            p_stats[pid]["sprint_m"] += sp_m
+            p_stats[pid]["acc"] += acc_c
+            p_stats[pid]["dec"] += dec_c
+            p_stats[pid]["eff"] += (acc_c + dec_c)
+            p_stats[pid]["mins"] += mins_c
+            p_stats[pid]["sessions_count"] += 1
+            if is_match and mins_c > 0:
+                p_stats[pid]["played_match"] = True
+                p_stats[pid]["match_mins"] = max(p_stats[pid]["match_mins"], mins_c)
+
+    # 3. Categorización de Futbolistas
+    players = (
+        db.query(Player)
+        .filter(Player.club_id == club_id, Player.active == True)
+        .order_by(Player.dorsal.asc())
+        .all()
+    )
+
+    optimal_players = []
+    deficit_players = []
+    fatigue_alerts = []
+    all_players_summary = []
+
+    for p in players:
+        pos_norm = p.position.upper().strip() if p.position else ""
+        if pos_norm == "PORTERO":
+            continue
+
+        st_data = p_stats[p.id]
+        acwr_info = acwr_by_player.get(p.id, {"acwr": None, "status": "Sin datos", "color": "#9E9E9E"})
+        acwr_val = acwr_info.get("acwr")
+
+        tot_km = round(st_data["td_m"] / 1000.0, 2)
+        tot_hsr = round(st_data["hsr_m"], 1)
+        tot_sprint = round(st_data["sprint_m"], 1)
+        tot_eff = st_data["eff"]
+        tot_mins = round(st_data["mins"], 1)
+        sess_cnt = st_data["sessions_count"]
+        match_played = st_data["played_match"]
+        match_mins = round(st_data["match_mins"], 1)
+
+        p_card = {
+            "player_id": p.id,
+            "dorsal": p.dorsal,
+            "name": p.name,
+            "position": pos_norm,
+            "tot_km": tot_km,
+            "tot_hsr": tot_hsr,
+            "tot_sprint": tot_sprint,
+            "tot_eff": tot_eff,
+            "tot_mins": tot_mins,
+            "sessions_count": sess_cnt,
+            "played_match": match_played,
+            "match_mins": match_mins,
+            "acwr": round(acwr_val, 2) if acwr_val is not None else None,
+            "acwr_status": acwr_info.get("status"),
+            "acwr_color": acwr_info.get("color")
+        }
+
+        # CLASIFICACIÓN RIGUROSA DE RENDIMIENTO DEPORTIVO:
+        # A) ALERTA DE FATIGA Y RIESGO LESIONAL:
+        # ACWR > 1.35 o sobrecarga mecánica extrema (AC.E muy elevado)
+        if (acwr_val is not None and acwr_val > 1.35) or (tot_eff > 680 and tot_mins > 380):
+            reasons = []
+            if acwr_val is not None and acwr_val > 1.50:
+                reasons.append(f"ACWR Crítico ({acwr_val:.2f} > 1.50 - Riesgo Alto de Sobrecarga)")
+            elif acwr_val is not None and acwr_val > 1.35:
+                reasons.append(f"ACWR en Precaución ({acwr_val:.2f} > 1.35 - Fatiga Acumulada)")
+            if tot_eff > 680:
+                reasons.append(f"Pico agudo de carga mecánica ({tot_eff} AC.E totales)")
+            if tot_mins > 420:
+                reasons.append(f"Alto minutaje competitivo ({tot_mins:.0f}' acumulados)")
+
+            p_card["alert_reasons"] = " • ".join(reasons)
+            p_card["recommendation"] = (
+                "⚠️ RECOMENDACIÓN TÁCTICA: Ajustar minutaje en el partido (máx. 45-60 min) o programar descanso "
+                "activo con descarga neuromuscular. En MD-1 suprimir tareas de finalización con frenada máxima."
+            )
+            p_card["category"] = "Alerta de Fatiga"
+            p_card["badge_color"] = "#EF4444"
+            fatigue_alerts.append(p_card)
+
+        # B) DÉFICIT DE ESTÍMULO (Subentrenamiento / Suplentes / No convocados):
+        elif tot_mins < 120.0 or sess_cnt <= 2 or (acwr_val is not None and acwr_val < 0.80):
+            def_reasons = []
+            if not match_played or match_mins < 30:
+                def_reasons.append(f"Suplente con {match_mins:.0f}' de competición")
+            if tot_mins < 120:
+                def_reasons.append(f"Minutaje semanal bajo ({tot_mins:.0f}' acumulados)")
+            if acwr_val is not None and acwr_val < 0.80:
+                def_reasons.append(f"ACWR bajo ({acwr_val:.2f} < 0.80 - Riesgo de desadaptación)")
+
+            p_card["deficit_reasons"] = " • ".join(def_reasons)
+            p_card["compensatory_plan"] = (
+                "📋 COMPENSATORIO SUGERIDO: 4 series de 80m fraccionadas a >21 km/h (HSR) + rondo dinámico "
+                "de posesión 4v4 en espacio reducido (8-10 min) para completar la carga fisiológica semanal."
+            )
+            p_card["category"] = "Déficit de Estímulo"
+            p_card["badge_color"] = "#3B82F6"
+            deficit_players.append(p_card)
+
+        # C) ESTADO ÓPTIMO:
+        else:
+            p_card["optimal_note"] = "En ventana óptima de rendimiento (Sweet Spot 0.80 - 1.30). Cumplió metas sin sobrecarga. Listo para competir al 100%."
+            p_card["category"] = "Estado Óptimo"
+            p_card["badge_color"] = "#10B981"
+            optimal_players.append(p_card)
+
+        all_players_summary.append(p_card)
+
+    team_kpis = {
+        "num_sessions": len(unique_sessions),
+        "total_team_duration": tot_team_duration,
+        "team_mean_distance_km": round(tot_team_td_m / 1000.0, 2),
+        "team_mean_hsr_m": round(tot_team_hsr_m, 1),
+        "team_mean_eff": tot_team_eff,
+        "players_monitored": len(all_players_summary),
+        "optimal_count": len(optimal_players),
+        "deficit_count": len(deficit_players),
+        "fatigue_count": len(fatigue_alerts)
+    }
+
+    return {
+        "start_date": start_date,
+        "end_date": end_date,
+        "sessions_breakdown": sessions_breakdown,
+        "team_kpis": team_kpis,
+        "optimal_players": optimal_players,
+        "deficit_players": deficit_players,
+        "fatigue_alerts": fatigue_alerts,
+        "all_players": all_players_summary
+    }
+
 
 
 
