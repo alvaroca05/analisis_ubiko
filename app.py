@@ -1522,9 +1522,11 @@ elif menu == "🏟️ Referencia Partidos (Excel P.F.)":
         with col_dl2:
             try:
                 from src.services.pdf_generator import generate_match_reference_pdf
+                is_full = (view_mode != "📋 Formato Oficial P.F. (6 Roles Referencia)")
                 pdf_data = generate_match_reference_pdf(
                     match_title=selected_match_label,
-                    df_rows=df_view
+                    df_rows=df_view,
+                    is_full_squad=is_full
                 )
                 st.download_button(
                     label="📄 Descargar PDF Oficial (P.F.)",

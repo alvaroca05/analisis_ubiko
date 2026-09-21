@@ -11,13 +11,14 @@ import pandas as pd
 def generate_match_reference_pdf(
     match_title: str,
     df_rows: pd.DataFrame,
-    season_title: str = "TEMPORADA 26/27 SALERM COSMETIC PUENTE GENIL REFERENCIA DATOS DE PARTIDOS"
+    season_title: str = "TEMPORADA 26/27 SALERM COSMETIC PUENTE GENIL REFERENCIA DATOS DE PARTIDOS",
+    is_full_squad: Optional[bool] = None
 ) -> bytes:
     """
     Genera un documento PDF en orientación horizontal (Landscape) que reproduce
     exactamente la estética, colores y estructura del Excel oficial del preparador físico:
     - Cabecera general del club.
-    - Bloque lateral con nombre del partido.
+    - Bloque lateral con nombre del partido (Formato Oficial 6 Roles) o cabecera completa (Convocatoria).
     - Fila 'JUGADOR TOP' destacada en fondo rojo suave (#E06666).
     - Filas posicionales (Central, Lateral, Mediocentro, Extremo con HSR dorado, Delantero).
     - Franja y fila de 'DATOS REFERENCIA GENERALES EQUIPO' en azul cian (#29AAE1).
@@ -65,7 +66,9 @@ def generate_match_reference_pdf(
         else:
             player_rows.append((pos, jug, tiempo, dt, vmax, hsr, sp_m, sprints, acc, dcc, r_type))
 
-    is_full_squad = len(player_rows) > 8
+    if is_full_squad is None:
+        is_full_squad = len(player_rows) > 8 or any("(Sin minutos)" in str(p[1]) for p in player_rows)
+
     short_block_name = match_title.replace("Jornada", "PARTIDO").replace("Partido contra", "").strip()
     if "(" in short_block_name:
         short_block_name = short_block_name.split("(")[0].strip()
