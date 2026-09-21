@@ -1436,8 +1436,8 @@ def get_match_reference_table_data(
                 continue
 
             m = metrics_by_player.get(p.id)
-            # Si jugó >= 30 min y >= 3000m en este partido, tomar datos reales de partido
-            if m is not None and (m.minutes_played or 0) >= 30 and (m.total_distance or 0) >= 3000:
+            # Si participó en este partido específico con minutos registrados
+            if m is not None and (m.minutes_played or 0) > 0 and (m.total_distance or 0) > 0:
                 td_m = float(m.total_distance or 0.0)
                 hsr_m = float(m.hsr_distance or 0.0)
                 vmax = float(m.max_speed or 0.0)
@@ -1448,31 +1448,16 @@ def get_match_reference_table_data(
                 sess_type = "Partido"
                 base_source = f"⚽ Partido ({mins:.0f}')"
             else:
-                # Suplente (<30 min) o no convocado: Fallback al Techo Dinámico de Entrenamiento
-                pk = peaks_map.get(p.id)
-                if pk and (pk.peak_td or 0) >= 3000.0:
-                    td_m = float(pk.peak_td or 0.0)
-                    hsr_m = float(pk.peak_hsr or 0.0)
-                    vmax = float(pk.peak_max_speed or 0.0)
-                    mins = float(pk.peak_minutes or 70.0)
-                    acc = int(pk.peak_acc_eff or 0)
-                    dec = int(pk.peak_dec_eff or 0)
-                    raw_sp = float(pk.peak_sprint or 0.0)
-                    sess_type = pk.peak_session_type or "Entrenamiento"
-                    if m is not None and (m.minutes_played or 0) > 0:
-                        base_source = f"🏃 Techo Entreno (Suplente {float(m.minutes_played):.0f}')"
-                    else:
-                        base_source = "🏃 Techo Entreno (No convocado)"
-                else:
-                    td_m = 9500.0 if "CENTRAL" in pos_norm else 10200.0
-                    hsr_m = 400.0
-                    vmax = float(p.max_speed_kmh or 31.0)
-                    mins = 90.0
-                    acc = 50
-                    dec = 50
-                    raw_sp = 120.0
-                    sess_type = "Teórico"
-                    base_source = "📋 Techo Posicional"
+                # No convocado o sin minutos en este partido específico
+                td_m = 0.0
+                hsr_m = 0.0
+                vmax = 0.0
+                mins = 0.0
+                acc = 0
+                dec = 0
+                raw_sp = 0.0
+                sess_type = "No convocado"
+                base_source = "📋 No convocado"
 
             if raw_sp <= 35.0:
                 sprints_cnt = int(raw_sp)
@@ -1482,12 +1467,15 @@ def get_match_reference_table_data(
                 sprints_cnt = max(1, int(round(raw_sp / 18.0))) if raw_sp > 0 else 0
 
             # Índice de rendimiento físico ponderado (Score de Exigencia Competitiva)
-            perf_score = (
-                (td_m / 10000.0) * 0.35 +
-                (hsr_m / 450.0) * 0.25 +
-                (sprint_m / 200.0) * 0.20 +
-                ((acc + dec) / 200.0) * 0.20
-            )
+            if td_m > 0:
+                perf_score = (
+                    (td_m / 10000.0) * 0.35 +
+                    (hsr_m / 450.0) * 0.25 +
+                    (sprint_m / 200.0) * 0.20 +
+                    ((acc + dec) / 200.0) * 0.20
+                )
+            else:
+                perf_score = 0.0
 
             players_data.append({
                 "player_id": p.id,
@@ -1635,15 +1623,16 @@ def get_match_reference_table_data(
         key=lambda x: (pos_order.get(x["position"], 99), x["dorsal"])
     )
 
-    # 3. Cálculos globales del equipo para la fila inferior
-    team_mean_time = float(np.mean([p["minutes"] for p in players_data if p["minutes"] > 0])) if any(p["minutes"] > 0 for p in players_data) else 90.0
-    team_tot_dist_km = float(np.sum([p["distance_km"] for p in players_data]))
-    team_peak_speed = float(np.max([p["max_speed"] for p in players_data])) if players_data else 0.0
-    team_tot_hsr = float(np.sum([p["hsr_m"] for p in players_data]))
-    team_tot_sprint_m = float(np.sum([p["sprint_m"] for p in players_data]))
-    team_tot_sprints = int(np.sum([p["sprints_cnt"] for p in players_data]))
-    team_tot_acc = int(np.sum([p["acc_expl"] for p in players_data]))
-    team_tot_dec = int(np.sum([p["dcc_expl"] for p in players_data]))
+    # 3. Cálculos globales del equipo para la fila inferior (exclusivamente futbolistas que jugaron)
+    team_played = [p for p in players_data if p["minutes"] > 0 and p["distance_km"] > 0]
+    team_mean_time = float(np.mean([p["minutes"] for p in team_played])) if team_played else 90.0
+    team_tot_dist_km = float(np.sum([p["distance_km"] for p in team_played]))
+    team_peak_speed = float(np.max([p["max_speed"] for p in team_played])) if team_played else 0.0
+    team_tot_hsr = float(np.sum([p["hsr_m"] for p in team_played]))
+    team_tot_sprint_m = float(np.sum([p["sprint_m"] for p in team_played]))
+    team_tot_sprints = int(np.sum([p["sprints_cnt"] for p in team_played]))
+    team_tot_acc = int(np.sum([p["acc_expl"] for p in team_played]))
+    team_tot_dec = int(np.sum([p["dcc_expl"] for p in team_played]))
 
     team_row = {
         "POSICIÓN": "EQUIPO",
@@ -1686,7 +1675,7 @@ def get_match_reference_table_data(
     for role in target_roles:
         cands_all = [
             p for p in players_data
-            if p["minutes"] > 0 and (
+            if p["minutes"] > 0 and p["distance_km"] > 0 and (
                 p["position"] == role or
                 (role == "LATERAL" and p["player_name"].upper() in ["MANU VIANA", "VIANA", "RAFA", "PAJUELO", "TALARN", "A. TALARN", "CONNOR"]) or
                 (role == "EXTREMO" and p["player_name"].upper() in ["CELLOU", "ALAN", "RAFITA"]) or
@@ -1698,18 +1687,21 @@ def get_match_reference_table_data(
         cands_no_top = [p for p in cands_all if p["player_id"] != top_player_item["player_id"]]
         cands_pool = cands_no_top if cands_no_top else cands_all
 
-        # Preferir candidatos cuya posición natural en BD sea exactamente 'role' si tienen minutos suficientes
+        # Preferir candidatos cuya posición natural en BD sea exactamente 'role'
         cands_exact = [p for p in cands_pool if p["position"] == role]
         if any(p["minutes"] >= 65 for p in cands_exact):
             cands = [p for p in cands_exact if p["minutes"] >= 65]
-        elif cands_exact and not any(p["minutes"] >= 65 for p in cands_pool):
+        elif cands_exact:
+            # Si hay futbolistas en esa demarcación que jugaron, seleccionarlos con prioridad
             cands = cands_exact
+        elif any(p["minutes"] >= 65 for p in cands_pool):
+            cands = [p for p in cands_pool if p["minutes"] >= 65]
         else:
             cands = cands_pool
 
         best_p = max(cands, key=lambda x: (x["minutes"] >= 65, x["distance_km"], x["hsr_m"])) if cands else None
         if not best_p:
-            best_p = next((p for p in players_data if p["position"] == role), None)
+            best_p = next((p for p in players_data if p["position"] == role and p["minutes"] > 0 and p["distance_km"] > 0), None)
 
         if best_p:
             official_rows.append({
@@ -1758,7 +1750,7 @@ def get_match_reference_table_data(
     df_full = pd.DataFrame(full_rows)
 
     team_summary = {
-        "num_players": len([p for p in players_data if p["minutes"] > 0]),
+        "num_players": len(team_played),
         "mean_time": team_mean_time,
         "tot_distance_km": team_tot_dist_km,
         "peak_max_speed": team_peak_speed,
@@ -1847,12 +1839,37 @@ def calculate_excel_pre_session_prescription(
     tot_min_acc = 0
     tot_min_dec = 0
 
-    for p in players_sorted:
-        if p.get("distance_km", 0.0) == 0.0:
-            continue
+    peaks_map = {
+        pk.player_id: pk
+        for pk in db.query(PlayerMatchPeak).filter(PlayerMatchPeak.club_id == club_id).all()
+    }
 
+    for p in players_sorted:
+        p_dist_km = float(p.get("distance_km", 0.0))
+        p_hsr_m = float(p.get("hsr_m", 0.0))
+        p_sprint_m = float(p.get("sprint_m", 0.0))
+        p_sprints_cnt = int(p.get("sprints_cnt", 0))
+        p_acc = int(p.get("acc_expl", 0))
+        p_dec = int(p.get("dcc_expl", 0))
+        p_vmax = float(p.get("max_speed", 0.0))
         p_sess_type = p.get("session_type", "Partido")
         p_base_source = p.get("base_source", f"⚽ Partido ({p.get('minutes', 90):.0f}')")
+
+        if p_dist_km == 0.0:
+            # Jugador que no disputó minutos en el partido de referencia: fallback a su Techo de Entrenamiento
+            pk = peaks_map.get(p["player_id"])
+            if pk and (pk.peak_td or 0) >= 3000.0:
+                p_dist_km = round(float(pk.peak_td or 0.0) / 1000.0, 2)
+                p_hsr_m = float(pk.peak_hsr or 0.0)
+                p_sprint_m = float(pk.peak_sprint or 0.0)
+                p_sprints_cnt = max(1, int(round(p_sprint_m / 18.0))) if p_sprint_m > 0 else 0
+                p_acc = int(pk.peak_acc_eff or 0)
+                p_dec = int(pk.peak_dec_eff or 0)
+                p_vmax = float(pk.peak_max_speed or 31.0)
+                p_sess_type = pk.peak_session_type or "Entrenamiento"
+                p_base_source = "🏃 Techo Entreno (No convocado)"
+            else:
+                continue
 
         # Proporcionalidad según metodología del preparador físico:
         # - Evaluados por PARTIDO: porcentaje directo sobre el partido (ej. 40% DT de partido).
@@ -1870,22 +1887,22 @@ def calculate_excel_pre_session_prescription(
             f_sprint = min(1.25, max(0.40, pct_sprint / std_sprint_day))
             f_eff = min(1.25, max(0.40, pct_eff / std_eff_day))
 
-            min_dist_km = round(p["distance_km"] * f_td, 2)
-            min_hsr = round(p["hsr_m"] * f_hsr, 1)
-            min_sprint_m = round(p["sprint_m"] * f_sprint, 1)
-            min_sprints = max(1, int(round(p["sprints_cnt"] * f_sprint))) if p["sprints_cnt"] > 0 else 0
-            min_acc = max(1, int(round(p["acc_expl"] * f_eff))) if p["acc_expl"] > 0 else 0
-            min_dec = max(1, int(round(p["dcc_expl"] * f_eff))) if p["dcc_expl"] > 0 else 0
+            min_dist_km = round(p_dist_km * f_td, 2)
+            min_hsr = round(p_hsr_m * f_hsr, 1)
+            min_sprint_m = round(p_sprint_m * f_sprint, 1)
+            min_sprints = max(1, int(round(p_sprints_cnt * f_sprint))) if p_sprints_cnt > 0 else 0
+            min_acc = max(1, int(round(p_acc * f_eff))) if p_acc > 0 else 0
+            min_dec = max(1, int(round(p_dec * f_eff))) if p_dec > 0 else 0
         else:
-            min_dist_km = round(p["distance_km"] * (pct_td / 100.0), 2)
-            min_hsr = round(p["hsr_m"] * (pct_hsr / 100.0), 1)
-            min_sprint_m = round(p["sprint_m"] * (pct_sprint / 100.0), 1)
-            min_sprints = max(1, int(round(p["sprints_cnt"] * (pct_sprint / 100.0)))) if p["sprints_cnt"] > 0 else 0
-            min_acc = max(1, int(round(p["acc_expl"] * (pct_eff / 100.0)))) if p["acc_expl"] > 0 else 0
-            min_dec = max(1, int(round(p["dcc_expl"] * (pct_eff / 100.0)))) if p["dcc_expl"] > 0 else 0
+            min_dist_km = round(p_dist_km * (pct_td / 100.0), 2)
+            min_hsr = round(p_hsr_m * (pct_hsr / 100.0), 1)
+            min_sprint_m = round(p_sprint_m * (pct_sprint / 100.0), 1)
+            min_sprints = max(1, int(round(p_sprints_cnt * (pct_sprint / 100.0)))) if p_sprints_cnt > 0 else 0
+            min_acc = max(1, int(round(p_acc * (pct_eff / 100.0)))) if p_acc > 0 else 0
+            min_dec = max(1, int(round(p_dec * (pct_eff / 100.0)))) if p_dec > 0 else 0
 
         # Velocidad pico objetivo: 85-90% de su velocidad punta en partido
-        target_vmax = round(p["max_speed"] * 0.88, 2)
+        target_vmax = round(p_vmax * 0.88, 2)
 
         tot_min_td_km += min_dist_km
         tot_min_hsr += min_hsr
