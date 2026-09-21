@@ -63,6 +63,7 @@ LOAD_LEVEL_PRESETS: Dict[int, Dict[str, Any]] = {
             "MD-2": {"pct_td": 35.0, "pct_hsr": 50.0, "pct_sprint": 45.0, "pct_eff": 35.0},
             "MD-1": {"pct_td": 35.0, "pct_hsr": 20.0, "pct_sprint": 15.0, "pct_eff": 25.0},
             "MD+1": {"pct_td": 45.0, "pct_hsr": 20.0, "pct_sprint": 15.0, "pct_eff": 30.0},
+            "MD+2": {"pct_td": 45.0, "pct_hsr": 20.0, "pct_sprint": 15.0, "pct_eff": 30.0},
             "MD":   {"pct_td": 50.0, "pct_hsr": 50.0, "pct_sprint": 50.0, "pct_eff": 50.0},
         }
     },
@@ -79,6 +80,7 @@ LOAD_LEVEL_PRESETS: Dict[int, Dict[str, Any]] = {
             "MD-2": {"pct_td": 45.0, "pct_hsr": 70.0, "pct_sprint": 65.0, "pct_eff": 45.0},
             "MD-1": {"pct_td": 45.0, "pct_hsr": 25.0, "pct_sprint": 20.0, "pct_eff": 30.0},
             "MD+1": {"pct_td": 50.0, "pct_hsr": 25.0, "pct_sprint": 20.0, "pct_eff": 35.0},
+            "MD+2": {"pct_td": 50.0, "pct_hsr": 25.0, "pct_sprint": 20.0, "pct_eff": 35.0},
             "MD":   {"pct_td": 70.0, "pct_hsr": 70.0, "pct_sprint": 70.0, "pct_eff": 70.0},
         }
     },
@@ -95,6 +97,7 @@ LOAD_LEVEL_PRESETS: Dict[int, Dict[str, Any]] = {
             "MD-2": {"pct_td": 55.0, "pct_hsr": 80.0, "pct_sprint": 75.0, "pct_eff": 55.0},
             "MD-1": {"pct_td": 50.0, "pct_hsr": 30.0, "pct_sprint": 25.0, "pct_eff": 35.0},
             "MD+1": {"pct_td": 55.0, "pct_hsr": 30.0, "pct_sprint": 25.0, "pct_eff": 40.0},
+            "MD+2": {"pct_td": 55.0, "pct_hsr": 30.0, "pct_sprint": 25.0, "pct_eff": 40.0},
             "MD":   {"pct_td": 80.0, "pct_hsr": 80.0, "pct_sprint": 80.0, "pct_eff": 80.0},
         }
     }
@@ -257,7 +260,7 @@ def evaluate_multivariable_deficit(
                 "Verde"
             )
 
-    elif day == "MD+1":
+    elif day in ["MD+1", "MD+2"]:
         if comp_pct_td > 125.0:
             return (
                 f"🟠 Sobrecarga en recuperación (DT: {comp_pct_td:.0f}%)",
@@ -1821,6 +1824,7 @@ def calculate_excel_pre_session_prescription(
         "MD-2": 60,
         "MD-1": 45,
         "MD+1": 50,
+        "MD+2": 50,
         "MD": 90
     }
     target_duration = day_durations.get(microcycle_day.upper().strip(), 75)
@@ -2236,7 +2240,7 @@ def classify_session_player_states(
         critical_metric = "hsr_distance"
         critical_label = "HSR (>21 km/h)"
         secondary_note = "En MD-2 la prioridad metodológica son los picos de alta velocidad (>21 km/h) y aceleraciones explosivas."
-    elif day in ["MD-1", "MD+1"]:
+    elif day in ["MD-1", "MD+1", "MD+2"]:
         critical_metric = "total_distance"
         critical_label = "Distancia Total (DT)"
         secondary_note = f"Sesión de {('activación pre-partido' if day == 'MD-1' else 'compensación/recuperación')} con volumen controlado."
@@ -2536,7 +2540,7 @@ def get_weekly_microcycle_summary(
         elif day_str == "MD-1":
             stimulus = "🎯 Activación Prepartido y Balón Parado (Volumen reducido)"
             planned_foco = "Sesión corta, baja fatiga residual y pelota parada"
-        elif day_str == "MD+1":
+        elif day_str in ["MD+1", "MD+2"]:
             stimulus = "🔄 Recuperación activa titulares / Compensatorio no titulares"
             planned_foco = "Regeneración metabólica y compensación para suplentes"
         elif is_match:

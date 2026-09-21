@@ -72,7 +72,7 @@ POSITIONS = [
 ]
 
 # Días del microciclo estructurado según metodología de periodización táctica
-MICROCYCLE_DAYS = ["MD-4", "MD-3", "MD-2", "MD-1", "MD", "MD+1"]
+MICROCYCLE_DAYS = ["MD-4", "MD-3", "MD-2", "MD-1", "MD", "MD+1", "MD+2"]
 
 MICROCYCLE_DESCRIPTIONS = {
     "MD-4": "Tensión y Fuerza (Espacios reducidos, alta densidad de aceleraciones)",
@@ -80,7 +80,8 @@ MICROCYCLE_DESCRIPTIONS = {
     "MD-2": "Velocidad y Táctica (Estimulación neuromuscular, velocidad máxima)",
     "MD-1": "Activación y Balón Parado (Volumen mínimo, frescura para el partido)",
     "MD": "Competición / Partido Oficial (Carga máxima de referencia)",
-    "MD+1": "Recuperación y Compensación (Descarga activos, compensación suplentes)"
+    "MD+1": "Recuperación y Compensación (Descarga activos, compensación suplentes)",
+    "MD+2": "Recuperación y Compensación (Compensatorio suplentes / descarga activos)"
 }
 
 # Parámetros del modelo ACWR (Acute:Chronic Workload Ratio) con EWMA (Williams et al., 2017)
@@ -173,6 +174,17 @@ MICROCYCLE_MATCH_TARGETS = {
         "pct_hsr": 0.20,
         "pct_hmld": 0.30,
         "pct_eff": 0.30
+    },
+    "MD+2": {
+        "primary_metric": "total_distance",
+        "primary_label": "Compensatorio / Recuperación",
+        "key_label": "Compensatorio (DT)",
+        "description": "Compensación de carga para suplentes y descarga activa",
+        "target_pct": 50.0,
+        "pct_td": 0.50,
+        "pct_hsr": 0.25,
+        "pct_hmld": 0.35,
+        "pct_eff": 0.35
     }
 }
 

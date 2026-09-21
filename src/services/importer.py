@@ -26,8 +26,8 @@ COLUMN_MAPPINGS = {
     "position": ["position", "posicion", "pos", "demarcacion", "puesto"],
     "minutes_played": ["time", "minutos", "minutes", "tiempo", "time_min", "duration", "duracion"],
     "total_distance": ["total_distance", "distancia_total", "dt", "distance", "distancia_(m)", "distancia"],
-    "hsr_distance": ["num_hsr", "hsr", "high_speed_running", "distancia_hsr", "distancia_>_19.8", "time_vrange5"],
-    "sprint_distance": ["sprints", "sprint", "sprint_distance", "distancia_sprint", "time_vrange6"],
+    "hsr_distance": ["distancia_hsr", "high_speed_running", "distancia_>_19.8", "distancia_alta_velocidad", "hsr_m", "hsr", "time_vrange5"],
+    "sprint_distance": ["distancia_sprint", "distancia_>_25.2", "sprint_distance", "sprint_m", "sprint", "time_vrange6"],
     "hmld": ["hmld", "high_metabolic_load_distance", "distancia_metabolica", "hmld_(m)"],
     "accelerations_eff": ["num_acc_expl", "aceleraciones", "acc", "acc_eficaces", "acc_>_3m/s2", "accelerations"],
     "decelerations_eff": ["num_dec_expl", "desaceleraciones", "dec", "dec_eficaces", "dec_<_3m/s2", "decelerations"],
@@ -167,18 +167,29 @@ class UbikoImporter:
             if col in df_mapped.columns:
                 df_mapped[col] = df_mapped[col].apply(parse_spanish_number)
 
+        # Si la distancia total viene en kilómetros (< 50 km), convertir a metros
+        if "total_distance" in df_mapped.columns and df_mapped["total_distance"].max() < 50.0:
+            df_mapped["total_distance"] = (df_mapped["total_distance"] * 1000.0).round(1)
+
         # Si HSR o Sprint proceden de columnas de tiempo (time_vrange5 / time_vrange6 en minutos),
         # convertir a metros reales utilizando las velocidades estándar del rango:
-        # V5 (HSR 19.8 - 25.2 km/h): ~22.5 km/h = 6.25 m/s -> minutos * 60 * 6.25 = minutos * 375 m
-        # V6 (Sprint > 25.2 km/h): ~27.0 km/h = 7.50 m/s -> minutos * 60 * 7.50 = minutos * 450 m
+        # V5 (Alta vel, 21 - 24 km/h): ~22.5 km/h = 6.25 m/s -> minutos * 60 * 6.25 = minutos * 375 m
+        # V6 (Sprint, > 24 km/h): ~27.0 km/h = 7.50 m/s -> minutos * 60 * 7.50 = minutos * 450 m
+        v5_converted = False
         for orig_col, canon in rename_dict.items():
             norm_orig = raw_cols.get(orig_col, "")
             if canon == "hsr_distance" and "vrange5" in norm_orig:
-                if "hsr_distance" in df_mapped.columns and df_mapped["hsr_distance"].max() < 30.0:
+                if "hsr_distance" in df_mapped.columns and df_mapped["hsr_distance"].max() < 50.0:
                     df_mapped["hsr_distance"] = (df_mapped["hsr_distance"] * 375.0).round(1)
+                    v5_converted = True
             elif canon == "sprint_distance" and "vrange6" in norm_orig:
-                if "sprint_distance" in df_mapped.columns and df_mapped["sprint_distance"].max() < 30.0:
+                if "sprint_distance" in df_mapped.columns and df_mapped["sprint_distance"].max() < 50.0:
                     df_mapped["sprint_distance"] = (df_mapped["sprint_distance"] * 450.0).round(1)
+
+        # En fútbol GPS y UBIKO, HSR (>21 km/h) = Rango 5 (Alta velocidad) + Rango 6 (Sprint)
+        # Si HSR fue derivado exclusivamente de time_vrange5, sumamos los metros de Sprint para obtener el HSR total real
+        if v5_converted and "sprint_distance" in df_mapped.columns and "hsr_distance" in df_mapped.columns:
+            df_mapped["hsr_distance"] = (df_mapped["hsr_distance"] + df_mapped["sprint_distance"]).round(1)
 
         return df_mapped
 
@@ -467,11 +478,14 @@ class UbikoImporter:
                 micro_day = "MD-3"
             elif "MD-2" in upper_name:
                 micro_day = "MD-2"
-            elif "MD-1" in upper_name:
-                micro_day = "MD-1"
+            elif "MD+2" in upper_name or "COMPENSATORIO" in upper_name:
+                micro_day = "MD+2"
+                sess_type = "Entrenamiento"
             elif "MD+1" in upper_name:
                 micro_day = "MD+1"
-            elif "PARTIDO" in upper_name or "MD" in upper_name:
+            elif "MD-1" in upper_name:
+                micro_day = "MD-1"
+            elif "PARTIDO" in upper_name or re.search(r"\bMD\b", upper_name):
                 micro_day = "MD"
                 sess_type = "Partido"
 

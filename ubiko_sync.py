@@ -16,8 +16,8 @@ import pandas as pd
 from src.config import DATA_DIR, SAMPLES_DIR
 from src.database.connection import get_db, init_db
 from src.database.models import Player, TrainingSession, PlayerMetric, TargetLoad
-from src.services.importer import UbikoImporter
-from src.services.analytics import calculate_session_summary
+from src.services.importer import UbikoImporter, parse_spanish_number, map_ubiko_position
+from src.services.analytics import calculate_session_summary, sync_and_update_player_match_peaks
 from src.services.report_generator import generate_tactical_report
 
 # Cargar variables de entorno desde archivo .env si existe
@@ -65,6 +65,101 @@ def ensure_session_storage() -> Path:
     except Exception as e:
         print(f"[UBIKO] Aviso al preparar archivo de sesión: {e}")
     return SESSION_STORAGE if SESSION_STORAGE.exists() else FALLBACK_SESSION_STORAGE
+
+
+def scrape_session_report_table(page, report_url: str) -> pd.DataFrame:
+    """
+    Extrae la tabla oficial de resumen de la sesión (Table 4) desde la URL del informe de UBIKO Web.
+    Esta tabla contiene los valores reales y oficiales en metros (HSR, Sprint, DT, Vmax, etc.).
+    """
+    try:
+        import re
+        page.goto(report_url, wait_until="domcontentloaded", timeout=35000)
+        page.wait_for_selector("table", timeout=15000)
+
+        tables = page.locator("table").all()
+        summary_table = None
+        for t in tables:
+            headers = [th.inner_text().strip().lower() for th in t.locator("th").all()]
+            if any("hsr" in h for h in headers) and any("distancia" in h for h in headers) and any("sprint" in h for h in headers):
+                summary_table = (t, headers)
+                break
+
+        if not summary_table:
+            return pd.DataFrame()
+
+        t_loc, headers = summary_table
+        h_idx = {h: i for i, h in enumerate(headers)}
+        idx_jug = next((i for h, i in h_idx.items() if "jugador" in h), 0)
+        idx_time = next((i for h, i in h_idx.items() if "tiempo" in h or "min" in h), 1)
+        idx_dt = next((i for h, i in h_idx.items() if "distancia" in h and "total" in h), 2)
+        idx_vmax = next((i for h, i in h_idx.items() if "velocidad" in h and "m" in h), 4)
+        idx_hsr = next((i for h, i in h_idx.items() if h == "hsr" or "hsr" in h), 5)
+        idx_sprint = next((i for h, i in h_idx.items() if h == "sprint"), 6)
+        idx_spr_cnt = next((i for h, i in h_idx.items() if "# sprint" in h or "sprints" in h), 7)
+        idx_acc = next((i for h, i in h_idx.items() if "acc" in h), 8)
+        idx_dec = next((i for h, i in h_idx.items() if "des" in h or "dec" in h), 9)
+
+        records = []
+        rows = t_loc.locator("tbody tr").all()
+        for r in rows:
+            cells = [td.inner_text().strip() for td in r.locator("td").all()]
+            if len(cells) < 8:
+                continue
+
+            raw_player = cells[idx_jug]
+            lines = [l.strip() for l in raw_player.split("\n") if l.strip()]
+            p_name = lines[0] if lines else raw_player
+            dorsal = None
+            pos = "Mediocentro"
+            if len(lines) > 1:
+                sub = lines[1]
+                m_num = re.search(r"^(\d+)", sub)
+                if m_num:
+                    dorsal = int(m_num.group(1))
+                if "-" in sub:
+                    raw_pos = sub.split("-", 1)[1].strip()
+                    pos = map_ubiko_position(raw_pos)
+
+            time_str = cells[idx_time]
+            mins = 80.0
+            if ":" in time_str:
+                parts = time_str.split(":")
+                try:
+                    mins = round(float(parts[0]) + float(parts[1]) / 60.0, 2)
+                except Exception:
+                    mins = 80.0
+            else:
+                mins = parse_spanish_number(time_str)
+
+            dt_val = parse_spanish_number(cells[idx_dt])
+            dt_m = dt_val * 1000.0 if dt_val < 50.0 else dt_val
+
+            vmax = parse_spanish_number(cells[idx_vmax])
+            hsr_m = parse_spanish_number(cells[idx_hsr])
+            sprint_m = parse_spanish_number(cells[idx_sprint])
+            spr_cnt = int(parse_spanish_number(cells[idx_spr_cnt])) if idx_spr_cnt < len(cells) else 0
+            acc = int(parse_spanish_number(cells[idx_acc])) if idx_acc < len(cells) else 0
+            dec = int(parse_spanish_number(cells[idx_dec])) if idx_dec < len(cells) else 0
+
+            records.append({
+                "player_name": p_name,
+                "dorsal": dorsal,
+                "position": pos,
+                "minutes_played": mins,
+                "total_distance": round(dt_m, 1),
+                "max_speed": round(vmax, 2),
+                "hsr_distance": round(hsr_m, 1),
+                "sprint_distance": round(sprint_m, 1),
+                "sprints_cnt": spr_cnt,
+                "accelerations_eff": acc,
+                "decelerations_eff": dec,
+            })
+
+        return pd.DataFrame(records)
+    except Exception as e:
+        print(f"[UBIKO] Error al extraer tabla de resumen del informe: {e}")
+        return pd.DataFrame()
 
 
 # Cargar credenciales desde st.secrets si está disponible (entorno Streamlit Cloud)
@@ -447,13 +542,26 @@ class UbikoSyncService:
                 continue
 
             print(f"[UBIKO] -> Sesión detectada: '{session_name}' ({parsed_date.strftime('%d/%m/%Y')}) | Estado: {raw_status}")
+
+            # Buscar enlace directo al informe de la sesión en la fila
+            report_url = None
+            try:
+                rep_link = row.locator("a[href*='/report']").first
+                if rep_link.count() > 0:
+                    href = rep_link.get_attribute("href")
+                    if href:
+                        report_url = href if href.startswith("http") else f"https://admin.ubikosports.com{href}"
+            except Exception:
+                pass
+
             sessions_to_process.append({
                 "row_idx": idx,
                 "row_locator": row,
                 "date": parsed_date,
                 "raw_date": raw_date,
                 "name": session_name,
-                "status": raw_status
+                "status": raw_status,
+                "report_url": report_url
             })
 
         print(f"[UBIKO] Se han encontrado {len(sessions_to_process)} sesión(es) a partir del {min_sync_date.strftime('%d/%m/%Y')}.")
@@ -473,6 +581,7 @@ class UbikoSyncService:
             s_name = item["name"]
             s_date = item["date"]
             s_status = item["status"]
+            s_report_url = item.get("report_url")
             current_row = item["row_locator"]
 
             print(f"\n[UBIKO] >>> Procesando sesión: '{s_name}' ({s_date.strftime('%d/%m/%Y')}) | Estado: {s_status}")
@@ -500,74 +609,89 @@ class UbikoSyncService:
                 synced_sessions.append({"id": existing.id, "name": s_name, "date": s_date, "status": "already_synced"})
                 continue
 
-            # Descargar CSV de la fila correspondiente
-            print(f"[UBIKO] Descargando telemetría CSV para '{s_name}'...")
-            download = None
+            df_parsed = pd.DataFrame()
 
-            actions_cell = current_row.locator("td, mat-cell").last
-            act_btns = actions_cell.locator("button, a").all()
-
-            # Intento 1: Buscar botón o enlace explícito de CSV
-            csv_item = current_row.locator('button:has-text("CSV"), a:has-text("CSV"), [title*="CSV" i], [aria-label*="CSV" i]')
-            if csv_item.count() > 0:
+            # Intento 1: Extraer métricas oficiales de la tabla de resumen del informe web (exactitud 100% en metros)
+            if s_report_url:
                 try:
-                    with page.expect_download(timeout=5000) as download_info:
-                        csv_item.first.click()
-                    download = download_info.value
-                except Exception:
-                    try:
-                        with page.expect_download(timeout=4000) as download_info:
-                            csv_item.first.evaluate("el => el.click()")
-                        download = download_info.value
-                    except Exception:
-                        pass
+                    print(f"[UBIKO] Extrayendo métricas oficiales desde informe web ('{s_report_url}')...")
+                    rep_page = context.new_page()
+                    df_parsed = scrape_session_report_table(rep_page, s_report_url)
+                    rep_page.close()
+                    if not df_parsed.empty:
+                        print(f"[UBIKO] ¡Métricas oficiales extraídas directamente del informe ({len(df_parsed)} futbolistas)!")
+                except Exception as e_scrape:
+                    print(f"[UBIKO] Aviso extrayendo informe web: {e_scrape}. Pasando a descarga CSV...")
 
-            # Intento 2: En la tabla de UBIKO, el botón CSV es típicamente el 4º botón verde (índice 3)
-            if not download and len(act_btns) >= 4:
-                try:
-                    with page.expect_download(timeout=4000) as download_info:
-                        act_btns[3].click()
-                    download = download_info.value
-                except Exception:
-                    try:
-                        with page.expect_download(timeout=4000) as download_info:
-                            act_btns[3].evaluate("el => el.click()")
-                        download = download_info.value
-                    except Exception:
-                        pass
+            # Intento 2 (Respaldo): Descargar CSV de la fila correspondiente si no se pudo leer el informe
+            if df_parsed.empty:
+                print(f"[UBIKO] Descargando telemetría CSV de respaldo para '{s_name}'...")
+                download = None
 
-            # Intento 3: Probar el 3º botón (índice 2)
-            if not download and len(act_btns) >= 3:
-                try:
-                    with page.expect_download(timeout=3000) as download_info:
-                        act_btns[2].click()
-                    download = download_info.value
-                except Exception:
-                    pass
+                actions_cell = current_row.locator("td, mat-cell").last
+                act_btns = actions_cell.locator("button, a").all()
 
-            # Intento 4: Desplegar menú de exportación de la fila si existe
-            if not download:
-                dropdown_toggle = current_row.locator('[ngbdropdowntoggle], [data-bs-toggle="dropdown"], .dropdown-toggle')
-                if dropdown_toggle.count() > 0:
+                # Intento 1: Buscar botón o enlace explícito de CSV
+                csv_item = current_row.locator('button:has-text("CSV"), a:has-text("CSV"), [title*="CSV" i], [aria-label*="CSV" i]')
+                if csv_item.count() > 0:
                     try:
-                        dropdown_toggle.first.click()
-                        time.sleep(0.5)
                         with page.expect_download(timeout=5000) as download_info:
-                            page.locator('button:has-text("CSV"), a:has-text("CSV"), .dropdown-item:has-text("CSV")').first.click(force=True)
+                            csv_item.first.click()
                         download = download_info.value
-                    except Exception as e_dd:
-                        print(f"[UBIKO] Aviso menú dropdown ({e_dd}).")
+                    except Exception:
+                        try:
+                            with page.expect_download(timeout=4000) as download_info:
+                                csv_item.first.evaluate("el => el.click()")
+                            download = download_info.value
+                        except Exception:
+                            pass
 
-            if not download:
-                print(f"[UBIKO ERROR] No se pudo descargar el CSV para la sesión '{s_name}'.")
-                continue
+                # Intento 2: En la tabla de UBIKO, el botón CSV es típicamente el 4º botón verde (índice 3)
+                if not download and len(act_btns) >= 4:
+                    try:
+                        with page.expect_download(timeout=4000) as download_info:
+                            act_btns[3].click()
+                        download = download_info.value
+                    except Exception:
+                        try:
+                            with page.expect_download(timeout=4000) as download_info:
+                                act_btns[3].evaluate("el => el.click()")
+                            download = download_info.value
+                        except Exception:
+                            pass
 
-            import tempfile
-            with tempfile.TemporaryDirectory() as tmpdir:
-                tmp_csv = Path(tmpdir) / download.suggested_filename
-                download.save_as(str(tmp_csv))
-                print(f"[UBIKO] Parseando telemetría en memoria para '{s_name}'...")
-                df_parsed = UbikoImporter.parse_file(tmp_csv, download.suggested_filename)
+                # Intento 3: Probar el 3º botón (índice 2)
+                if not download and len(act_btns) >= 3:
+                    try:
+                        with page.expect_download(timeout=3000) as download_info:
+                            act_btns[2].click()
+                        download = download_info.value
+                    except Exception:
+                        pass
+
+                # Intento 4: Desplegar menú de exportación de la fila si existe
+                if not download:
+                    dropdown_toggle = current_row.locator('[ngbdropdowntoggle], [data-bs-toggle="dropdown"], .dropdown-toggle')
+                    if dropdown_toggle.count() > 0:
+                        try:
+                            dropdown_toggle.first.click()
+                            time.sleep(0.5)
+                            with page.expect_download(timeout=5000) as download_info:
+                                page.locator('button:has-text("CSV"), a:has-text("CSV"), .dropdown-item:has-text("CSV")').first.click(force=True)
+                            download = download_info.value
+                        except Exception as e_dd:
+                            print(f"[UBIKO] Aviso menú dropdown ({e_dd}).")
+
+                if not download:
+                    print(f"[UBIKO ERROR] No se pudo descargar el CSV para la sesión '{s_name}'.")
+                    continue
+
+                import tempfile
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    tmp_csv = Path(tmpdir) / download.suggested_filename
+                    download.save_as(str(tmp_csv))
+                    print(f"[UBIKO] Parseando telemetría en memoria para '{s_name}'...")
+                    df_parsed = UbikoImporter.parse_file(tmp_csv, download.suggested_filename)
 
             if df_parsed.empty:
                 print(f"[UBIKO] Archivo sin registros válidos para '{s_name}'.")
@@ -583,11 +707,14 @@ class UbikoSyncService:
                 micro_day = "MD-3"
             elif "MD-2" in name_upper:
                 micro_day = "MD-2"
+            elif "MD+2" in name_upper or "COMPENSATORIO" in name_upper:
+                micro_day = "MD+2"
+                sess_type = "Entrenamiento"
             elif "MD+1" in name_upper:
                 micro_day = "MD+1"
             elif "MD-1" in name_upper:
                 micro_day = "MD-1"
-            elif "PARTIDO" in name_upper or "MD" in name_upper:
+            elif "PARTIDO" in name_upper or re.search(r"\bMD\b", name_upper):
                 micro_day = "MD"
                 sess_type = "Partido"
 

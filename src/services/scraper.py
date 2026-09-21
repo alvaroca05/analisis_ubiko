@@ -5,6 +5,7 @@ descarga el archivo consolidado, lo almacena en SQLite y genera el informe táct
 """
 
 import os
+import re
 import json
 import time
 from datetime import datetime, date
@@ -52,12 +53,13 @@ class UbikoWebAutomator:
 
         url_to_open = target_url or f"{self.base_url}"
 
-        with sync_playwright() as p:
-            # Lanzamos navegador Chromium
-            browser = p.chromium.launch(
-                headless=self.headless,
-                args=["--start-maximized", "--disable-blink-features=AutomationControlled"]
-            )
+        try:
+            with sync_playwright() as p:
+                # Lanzamos navegador Chromium
+                browser = p.chromium.launch(
+                    headless=self.headless,
+                    args=["--start-maximized", "--disable-blink-features=AutomationControlled"]
+                )
 
             # Usar cookies guardadas si existen
             if SESSION_STORAGE_PATH.exists():
@@ -207,11 +209,14 @@ class UbikoWebAutomator:
                 micro_day = "MD-3"
             elif "MD-2" in name_upper:
                 micro_day = "MD-2"
+            elif "MD+2" in name_upper or "COMPENSATORIO" in name_upper:
+                micro_day = "MD+2"
+                sess_type = "Entrenamiento"
             elif "MD+1" in name_upper:
                 micro_day = "MD+1"
             elif "MD-1" in name_upper:
                 micro_day = "MD-1"
-            elif "PARTIDO" in name_upper or "MD" in name_upper:
+            elif "PARTIDO" in name_upper or re.search(r"\bMD\b", name_upper):
                 micro_day = "MD"
                 sess_type = "Partido"
 
