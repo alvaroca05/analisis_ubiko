@@ -43,89 +43,10 @@ def generate_match_reference_pdf(
     )
 
     styles = getSampleStyleSheet()
-    title_style = ParagraphStyle(
-        "DocTitle",
-        fontName="Helvetica-Bold",
-        fontSize=12,
-        leading=15,
-        alignment=TA_CENTER,
-        textColor=colors.HexColor("#0F172A")
-    )
-    cell_style = ParagraphStyle(
-        "CellNormal",
-        fontName="Helvetica",
-        fontSize=8.5,
-        leading=11,
-        alignment=TA_CENTER,
-        textColor=colors.HexColor("#1E293B")
-    )
-    cell_bold = ParagraphStyle(
-        "CellBold",
-        fontName="Helvetica-Bold",
-        fontSize=8.5,
-        leading=11,
-        alignment=TA_CENTER,
-        textColor=colors.HexColor("#0F172A")
-    )
-    cell_white = ParagraphStyle(
-        "CellWhite",
-        fontName="Helvetica-Bold",
-        fontSize=8.5,
-        leading=11,
-        alignment=TA_CENTER,
-        textColor=colors.white
-    )
 
-    elements = []
-
-    # 1. Cabecera con título del Club y Temporada
-    title_p = Paragraph(f"<b>{season_title}</b>", title_style)
-    title_table = Table([[title_p]], colWidths=[800])
-    title_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor("#F1F5F9")),
-        ('BOX', (0, 0), (-1, -1), 1, colors.HexColor("#334155")),
-        ('TOPPADDING', (0, 0), (-1, -1), 6),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
-    ]))
-    elements.append(title_table)
-    elements.append(Spacer(1, 10))
-
-    # 2. Construir la matriz de datos de la tabla
-    # Columnas esperadas:
-    # Bloque | Posición | Jugador | Tiempo | Distancia Total | Velocidad Max | HSR | Metros en Sprint | #Sprints | #Acc Expl | #Dcc Expl
-    headers = [
-        "BLOQUE", "POSICIÓN", "JUGADOR", "TIEMPO", "DISTANCIA\nTOTAL (km)",
-        "VELOCIDAD\nMAX (km/h)", "HSR (m)", "METROS EN\nSPRINT", "#SPRINTS",
-        "#ACC EXPL", "#DCC EXPL"
-    ]
-
-    header_row = [Paragraph(f"<b>{h}</b>", cell_bold) for h in headers]
-    table_data = [header_row]
-
-    table_styles = [
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#475569")),
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#E2E8F0")),
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('TOPPADDING', (0, 0), (-1, -1), 4),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
-    ]
-
-    # Nombre corto para el bloque izquierdo (ej. "PARTIDO 1\nMIJAS COSTA")
-    short_block_name = match_title.replace("Jornada", "PARTIDO").replace("Partido contra", "").strip()
-    if "(" in short_block_name:
-        short_block_name = short_block_name.split("(")[0].strip()
-
-    # Iterar por las filas de df_rows
-    # Detectar cuáles son jugadores, cuál es TOP y cuál es EQUIPO
-    row_idx = 1
-    cellou_row_idx = None
-    team_header_idx = None
-    team_data_idx = None
-
+    # Separar jugadores y resumen de equipo
     player_rows = []
     team_row_vals = None
-
     for _, r in df_rows.iterrows():
         pos = str(r.get("POSICIÓN", "")).strip()
         jug = str(r.get("JUGADOR", "")).strip()
@@ -144,85 +65,226 @@ def generate_match_reference_pdf(
         else:
             player_rows.append((pos, jug, tiempo, dt, vmax, hsr, sp_m, sprints, acc, dcc, r_type))
 
-    # Filas de jugadores
-    for p_tuple in player_rows:
-        pos, jug, tiempo, dt, vmax, hsr, sp_m, sprints, acc, dcc, r_type = p_tuple
-        is_top = (r_type == "top" or "TOP" in pos or "⭐" in pos)
-        pos_clean = pos.replace("⭐", "").strip()
+    is_full_squad = len(player_rows) > 8
+    short_block_name = match_title.replace("Jornada", "PARTIDO").replace("Partido contra", "").strip()
+    if "(" in short_block_name:
+        short_block_name = short_block_name.split("(")[0].strip()
 
-        row_content = [
-            Paragraph(f"<b>{short_block_name}</b>", cell_bold) if row_idx == 1 else "",
-            Paragraph(f"<b>{pos_clean}</b>", cell_white if is_top else cell_bold),
-            Paragraph(f"<b>{jug}</b>" if is_top else jug, cell_white if is_top else cell_style),
-            Paragraph(tiempo, cell_white if is_top else cell_style),
-            Paragraph(dt, cell_white if is_top else cell_style),
-            Paragraph(vmax, cell_white if is_top else cell_style),
-            Paragraph(hsr, cell_white if is_top else cell_style),
-            Paragraph(sp_m, cell_white if is_top else cell_style),
-            Paragraph(sprints, cell_white if is_top else cell_style),
-            Paragraph(acc, cell_white if is_top else cell_style),
-            Paragraph(dcc, cell_white if is_top else cell_style),
+    # Tipografía y espaciado adaptativo
+    f_size = 7.5 if is_full_squad else 8.5
+    f_lead = 9.5 if is_full_squad else 11.0
+    pad_v = 2.5 if is_full_squad else 4.0
+
+    title_style = ParagraphStyle(
+        "DocTitle",
+        fontName="Helvetica-Bold",
+        fontSize=11 if is_full_squad else 12,
+        leading=14 if is_full_squad else 15,
+        alignment=TA_CENTER,
+        textColor=colors.HexColor("#0F172A")
+    )
+    cell_style = ParagraphStyle(
+        "CellNormal",
+        fontName="Helvetica",
+        fontSize=f_size,
+        leading=f_lead,
+        alignment=TA_CENTER,
+        textColor=colors.HexColor("#1E293B")
+    )
+    cell_bold = ParagraphStyle(
+        "CellBold",
+        fontName="Helvetica-Bold",
+        fontSize=f_size,
+        leading=f_lead,
+        alignment=TA_CENTER,
+        textColor=colors.HexColor("#0F172A")
+    )
+    cell_white = ParagraphStyle(
+        "CellWhite",
+        fontName="Helvetica-Bold",
+        fontSize=f_size,
+        leading=f_lead,
+        alignment=TA_CENTER,
+        textColor=colors.white
+    )
+
+    elements = []
+
+    # 1. Cabecera con título del Club y Temporada
+    if is_full_squad:
+        header_text = f"<b>{season_title}</b><br/><font size=9 color='#1E3A8A'>{short_block_name} &bull; CONVOCATORIA COMPLETA ({len(player_rows)} Jugadores)</font>"
+    else:
+        header_text = f"<b>{season_title}</b>"
+
+    title_p = Paragraph(header_text, title_style)
+    title_table = Table([[title_p]], colWidths=[800])
+    title_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor("#F1F5F9")),
+        ('BOX', (0, 0), (-1, -1), 1, colors.HexColor("#334155")),
+        ('TOPPADDING', (0, 0), (-1, -1), 4 if is_full_squad else 6),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 4 if is_full_squad else 6),
+    ]))
+    elements.append(title_table)
+    elements.append(Spacer(1, 6 if is_full_squad else 10))
+
+    table_styles = [
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#475569")),
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#E2E8F0")),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('TOPPADDING', (0, 0), (-1, -1), pad_v),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), pad_v),
+    ]
+
+    row_idx = 1
+
+    if is_full_squad:
+        # En convocatoria completa omitimos la columna 'BLOQUE' lateral para dar espacio suficiente a los nombres
+        headers = [
+            "POSICIÓN", "JUGADOR", "TIEMPO", "DISTANCIA\nTOTAL (km)",
+            "VELOCIDAD\nMAX (km/h)", "HSR (m)", "METROS EN\nSPRINT", "#SPRINTS",
+            "#ACC EXPL", "#DCC EXPL"
         ]
-        table_data.append(row_content)
+        col_widths = [90, 140, 55, 75, 75, 65, 75, 55, 55, 55]
+        header_row = [Paragraph(f"<b>{h}</b>", cell_bold) for h in headers]
+        table_data = [header_row]
 
-        if is_top:
-            # Fondo rojo suave (#D9534F) como en la plantilla manuscrita
-            table_styles.append(('BACKGROUND', (1, row_idx), (-1, row_idx), colors.HexColor("#D9534F")))
-        elif "EXTREMO" in pos_clean or "CELLOU" in jug.upper():
-            # Destacar HSR del extremo en oro suave (#FFF2CC)
-            table_styles.append(('BACKGROUND', (6, row_idx), (6, row_idx), colors.HexColor("#FFF2CC")))
-            cellou_row_idx = row_idx
+        for p_tuple in player_rows:
+            pos, jug, tiempo, dt, vmax, hsr, sp_m, sprints, acc, dcc, r_type = p_tuple
+            is_top = (r_type == "top" or "TOP" in pos or "⭐" in pos)
+            pos_clean = pos.replace("⭐", "").strip()
 
+            row_content = [
+                Paragraph(f"<b>{pos_clean}</b>", cell_white if is_top else cell_bold),
+                Paragraph(f"<b>{jug}</b>" if is_top else jug, cell_white if is_top else cell_style),
+                Paragraph(tiempo, cell_white if is_top else cell_style),
+                Paragraph(dt, cell_white if is_top else cell_style),
+                Paragraph(vmax, cell_white if is_top else cell_style),
+                Paragraph(hsr, cell_white if is_top else cell_style),
+                Paragraph(sp_m, cell_white if is_top else cell_style),
+                Paragraph(sprints, cell_white if is_top else cell_style),
+                Paragraph(acc, cell_white if is_top else cell_style),
+                Paragraph(dcc, cell_white if is_top else cell_style),
+            ]
+            table_data.append(row_content)
+
+            if is_top:
+                table_styles.append(('BACKGROUND', (0, row_idx), (-1, row_idx), colors.HexColor("#D9534F")))
+            elif "EXTREMO" in pos_clean or "CELLOU" in jug.upper():
+                table_styles.append(('BACKGROUND', (5, row_idx), (5, row_idx), colors.HexColor("#FFF2CC")))
+
+            row_idx += 1
+
+        # Fila de TÍTULO DE EQUIPO
+        team_title_p = Paragraph("<b>DATOS REFERENCIA GENERALES EQUIPO</b>", cell_white)
+        team_header_row = [team_title_p] + [""] * 9
+        table_data.append(team_header_row)
+        team_header_idx = row_idx
+        table_styles.extend([
+            ('SPAN', (0, team_header_idx), (-1, team_header_idx)),
+            ('BACKGROUND', (0, team_header_idx), (-1, team_header_idx), colors.HexColor("#29AAE1")),
+            ('ALIGN', (0, team_header_idx), (-1, team_header_idx), 'CENTER'),
+        ])
         row_idx += 1
 
-    # Fila de TÍTULO DE EQUIPO (DATOS REFERENCIA GENERALES EQUIPO)
-    team_title_p = Paragraph("<b>DATOS REFERENCIA GENERALES EQUIPO</b>", cell_white)
-    team_header_row = ["", team_title_p, "", "", "", "", "", "", "", "", ""]
-    table_data.append(team_header_row)
-    team_header_idx = row_idx
-    table_styles.extend([
-        ('SPAN', (1, team_header_idx), (-1, team_header_idx)),
-        ('BACKGROUND', (1, team_header_idx), (-1, team_header_idx), colors.HexColor("#29AAE1")),
-        ('ALIGN', (1, team_header_idx), (-1, team_header_idx), 'CENTER'),
-    ])
-    row_idx += 1
+        # Fila de VALORES DE EQUIPO
+        if team_row_vals:
+            t_tiempo, t_dt, t_vmax, t_hsr, t_spm, t_spr, t_acc, t_dcc = team_row_vals
+        else:
+            t_tiempo, t_dt, t_vmax, t_hsr, t_spm, t_spr, t_acc, t_dcc = ("95' (Media)", "119.36 KM", "31.57 KM/H", "2.347 KM", "-", "-", "-", "-")
 
-    # Fila de VALORES DE EQUIPO
-    if team_row_vals:
-        t_tiempo, t_dt, t_vmax, t_hsr, t_spm, t_spr, t_acc, t_dcc = team_row_vals
+        team_data_row = [
+            "", "",
+            Paragraph(f"<b>{t_tiempo}</b>", cell_bold),
+            Paragraph(f"<b>{t_dt}</b>", cell_bold),
+            Paragraph(f"<b>{t_vmax}</b>", cell_bold),
+            Paragraph(f"<b>{t_hsr}</b>", cell_bold),
+            Paragraph(f"<b>{t_spm}</b>", cell_bold),
+            Paragraph(f"<b>{t_spr}</b>", cell_bold),
+            Paragraph(f"<b>{t_acc}</b>", cell_bold),
+            Paragraph(f"<b>{t_dcc}</b>", cell_bold),
+        ]
+        table_data.append(team_data_row)
+        team_data_idx = row_idx
+        table_styles.extend([
+            ('SPAN', (0, team_data_idx), (1, team_data_idx)),
+            ('BACKGROUND', (0, team_data_idx), (-1, team_data_idx), colors.HexColor("#E0F2FE")),
+        ])
     else:
-        t_tiempo, t_dt, t_vmax, t_hsr, t_spm, t_spr, t_acc, t_dcc = ("90' (Media)", "112 KM", "33.0 KM/H", "4.500 KM", "-", "-", "-", "-")
+        # Formato Oficial P.F. (6 Roles): Idéntico al Excel con columna lateral de bloque
+        headers = [
+            "BLOQUE", "POSICIÓN", "JUGADOR", "TIEMPO", "DISTANCIA\nTOTAL (km)",
+            "VELOCIDAD\nMAX (km/h)", "HSR (m)", "METROS EN\nSPRINT", "#SPRINTS",
+            "#ACC EXPL", "#DCC EXPL"
+        ]
+        col_widths = [80, 75, 95, 75, 75, 75, 60, 80, 55, 55, 55]
+        header_row = [Paragraph(f"<b>{h}</b>", cell_bold) for h in headers]
+        table_data = [header_row]
 
-    team_data_row = [
-        "",  # Bloque izquierdo combinado
-        "",  # Posición vacía en fila de totales
-        "",  # Jugador vacío en fila de totales
-        Paragraph(f"<b>{t_tiempo}</b>", cell_bold),
-        Paragraph(f"<b>{t_dt}</b>", cell_bold),
-        Paragraph(f"<b>{t_vmax}</b>", cell_bold),
-        Paragraph(f"<b>{t_hsr}</b>", cell_bold),
-        Paragraph(f"<b>{t_spm}</b>", cell_bold),
-        Paragraph(f"<b>{t_spr}</b>", cell_bold),
-        Paragraph(f"<b>{t_acc}</b>", cell_bold),
-        Paragraph(f"<b>{t_dcc}</b>", cell_bold),
-    ]
-    table_data.append(team_data_row)
-    team_data_idx = row_idx
-    table_styles.extend([
-        ('BACKGROUND', (1, team_data_idx), (-1, team_data_idx), colors.HexColor("#E0F2FE")),
-    ])
+        for p_tuple in player_rows:
+            pos, jug, tiempo, dt, vmax, hsr, sp_m, sprints, acc, dcc, r_type = p_tuple
+            is_top = (r_type == "top" or "TOP" in pos or "⭐" in pos)
+            pos_clean = pos.replace("⭐", "").strip()
 
-    # Combinar la primera columna (Bloque Partido) desde la fila 1 hasta el final
-    table_styles.extend([
-        ('SPAN', (0, 1), (0, -1)),
-        ('BACKGROUND', (0, 1), (0, -1), colors.HexColor("#9BB4C9")),
-        ('TEXTCOLOR', (0, 1), (0, -1), colors.HexColor("#0F172A")),
-    ])
+            row_content = [
+                Paragraph(f"<b>{short_block_name}</b>", cell_bold) if row_idx == 1 else "",
+                Paragraph(f"<b>{pos_clean}</b>", cell_white if is_top else cell_bold),
+                Paragraph(f"<b>{jug}</b>" if is_top else jug, cell_white if is_top else cell_style),
+                Paragraph(tiempo, cell_white if is_top else cell_style),
+                Paragraph(dt, cell_white if is_top else cell_style),
+                Paragraph(vmax, cell_white if is_top else cell_style),
+                Paragraph(hsr, cell_white if is_top else cell_style),
+                Paragraph(sp_m, cell_white if is_top else cell_style),
+                Paragraph(sprints, cell_white if is_top else cell_style),
+                Paragraph(acc, cell_white if is_top else cell_style),
+                Paragraph(dcc, cell_white if is_top else cell_style),
+            ]
+            table_data.append(row_content)
 
-    # Anchos de columna en puntos (Total ~800 pt)
-    col_widths = [80, 75, 95, 75, 75, 75, 60, 80, 55, 55, 55]
+            if is_top:
+                table_styles.append(('BACKGROUND', (1, row_idx), (-1, row_idx), colors.HexColor("#D9534F")))
+            elif "EXTREMO" in pos_clean or "CELLOU" in jug.upper():
+                table_styles.append(('BACKGROUND', (6, row_idx), (6, row_idx), colors.HexColor("#FFF2CC")))
 
-    t = Table(table_data, colWidths=col_widths)
+            row_idx += 1
+
+        team_title_p = Paragraph("<b>DATOS REFERENCIA GENERALES EQUIPO</b>", cell_white)
+        team_header_row = ["", team_title_p, "", "", "", "", "", "", "", "", ""]
+        table_data.append(team_header_row)
+        team_header_idx = row_idx
+        table_styles.extend([
+            ('SPAN', (1, team_header_idx), (-1, team_header_idx)),
+            ('BACKGROUND', (1, team_header_idx), (-1, team_header_idx), colors.HexColor("#29AAE1")),
+            ('ALIGN', (1, team_header_idx), (-1, team_header_idx), 'CENTER'),
+        ])
+        row_idx += 1
+
+        if team_row_vals:
+            t_tiempo, t_dt, t_vmax, t_hsr, t_spm, t_spr, t_acc, t_dcc = team_row_vals
+        else:
+            t_tiempo, t_dt, t_vmax, t_hsr, t_spm, t_spr, t_acc, t_dcc = ("95' (Media)", "119.36 KM", "31.57 KM/H", "2.347 KM", "-", "-", "-", "-")
+
+        team_data_row = [
+            "", "", "",
+            Paragraph(f"<b>{t_tiempo}</b>", cell_bold),
+            Paragraph(f"<b>{t_dt}</b>", cell_bold),
+            Paragraph(f"<b>{t_vmax}</b>", cell_bold),
+            Paragraph(f"<b>{t_hsr}</b>", cell_bold),
+            Paragraph(f"<b>{t_spm}</b>", cell_bold),
+            Paragraph(f"<b>{t_spr}</b>", cell_bold),
+            Paragraph(f"<b>{t_acc}</b>", cell_bold),
+            Paragraph(f"<b>{t_dcc}</b>", cell_bold),
+        ]
+        table_data.append(team_data_row)
+        team_data_idx = row_idx
+        table_styles.extend([
+            ('BACKGROUND', (1, team_data_idx), (-1, team_data_idx), colors.HexColor("#E0F2FE")),
+            ('SPAN', (0, 1), (0, -1)),
+            ('BACKGROUND', (0, 1), (0, -1), colors.HexColor("#9BB4C9")),
+            ('TEXTCOLOR', (0, 1), (0, -1), colors.HexColor("#0F172A")),
+        ])
+
+    t = Table(table_data, colWidths=col_widths, repeatRows=1)
     t.setStyle(TableStyle(table_styles))
     elements.append(t)
 
