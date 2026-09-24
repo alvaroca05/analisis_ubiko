@@ -174,7 +174,7 @@ class UbikoImporter:
         # Si HSR o Sprint proceden de columnas de tiempo (time_vrange5 / time_vrange6 en minutos),
         # convertir a metros reales utilizando las velocidades estándar del rango:
         # V5 (Alta vel, 21 - 24 km/h): ~22.5 km/h = 6.25 m/s -> minutos * 60 * 6.25 = minutos * 375 m
-        # V6 (Sprint, > 24 km/h): ~27.0 km/h = 7.50 m/s -> minutos * 60 * 7.50 = minutos * 450 m
+        # V6 (Sprint, > 25 km/h): ~27.0 km/h = 7.50 m/s -> minutos * 60 * 7.50 = minutos * 450 m
         v5_converted = False
         for orig_col, canon in rename_dict.items():
             norm_orig = raw_cols.get(orig_col, "")

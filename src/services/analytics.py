@@ -1398,6 +1398,9 @@ def get_match_reference_table_data(
     players_data = []
 
     if session_id is not None:
+        ref_sess = db.query(TrainingSession).filter(TrainingSession.id == session_id).first()
+        sess_name_clean = (ref_sess.name or "Partido").replace("Partido fútbol 11' contra ", "").replace("TEMPORADA_", "").replace("_", " ").strip() if ref_sess else "Partido"
+
         # Extraer métricas reales de la sesión de partido seleccionada
         metrics = (
             db.query(
@@ -1449,9 +1452,10 @@ def get_match_reference_table_data(
                 dec = int(m.decelerations_eff or 0)
                 raw_sp = float(m.sprint_distance or 0.0)
                 sess_type = "Partido"
-                base_source = f"⚽ Partido ({mins:.0f}')"
+                base_source = f"⚽ {sess_name_clean} ({mins:.0f}')"
             else:
-                # No convocado o sin minutos en este partido específico
+                # No convocado o sin minutos en este partido específico: fallback a su techo individual
+                pk = peaks_map.get(p.id)
                 td_m = 0.0
                 hsr_m = 0.0
                 vmax = 0.0
@@ -1460,7 +1464,12 @@ def get_match_reference_table_data(
                 dec = 0
                 raw_sp = 0.0
                 sess_type = "No convocado"
-                base_source = "📋 No convocado"
+                if pk and pk.peak_session_name:
+                    pk_clean = pk.peak_session_name.replace("Partido fútbol 11' contra ", "").replace("TEMPORADA_", "").replace("_", " ").strip()
+                    icon = "⚽" if pk.peak_session_type == "Partido" else "🏃"
+                    base_source = f"{icon} {pk_clean} (No convocado)"
+                else:
+                    base_source = "📋 Perfil Estándar"
 
             if raw_sp <= 35.0:
                 sprints_cnt = int(raw_sp)
@@ -1549,7 +1558,12 @@ def get_match_reference_table_data(
             sess_type = p.peak_session_type or ("Partido" if "Partido" in str(p.peak_session_name) else "Entrenamiento")
             real_mins = float(p.peak_minutes) if p.peak_minutes else (90.0 if sess_type == "Partido" else 70.0)
             mins = real_mins if has_played else 0.0
-            base_source_label = f"⚽ Partido ({real_mins:.0f}')" if sess_type == "Partido" else (f"🏃 Entreno ({real_mins:.0f}')" if sess_type == "Entrenamiento" else f"📋 Teórico ({real_mins:.0f}')")
+            clean_name = (p.peak_session_name or "").replace("Partido fútbol 11' contra ", "").replace("TEMPORADA_", "").replace("_", " ").strip()
+            icon = "⚽" if sess_type == "Partido" else "🏃"
+            if clean_name:
+                base_source_label = f"{icon} {clean_name}"
+            else:
+                base_source_label = f"{icon} Techo {sess_type} ({real_mins:.0f}')"
 
             perf_score = (
                 (td_m / 10000.0) * 0.35 +
@@ -1870,8 +1884,9 @@ def calculate_excel_pre_session_prescription(
                 p_acc = int(pk.peak_acc_eff or 0)
                 p_dec = int(pk.peak_dec_eff or 0)
                 p_vmax = float(pk.peak_max_speed or 31.0)
-                p_sess_type = pk.peak_session_type or "Entrenamiento"
-                p_base_source = "🏃 Techo Entreno (No convocado)"
+                pk_clean = (pk.peak_session_name or "").replace("Partido fútbol 11' contra ", "").replace("TEMPORADA_", "").replace("_", " ").strip()
+                icon = "⚽" if pk.peak_session_type == "Partido" else "🏃"
+                p_base_source = f"{icon} {pk_clean or 'Techo Entreno'} (No convocado)"
             else:
                 continue
 
@@ -2018,7 +2033,8 @@ def get_post_session_multivariable_table(
                 "min_sprint_m": float(r["METROS EN SPRINT"]),
                 "min_sprints": int(r["#SPRINTS"]),
                 "min_acc": int(r["#ACC EXPL"]),
-                "min_dec": int(r["#DCC EXPL"])
+                "min_dec": int(r["#DCC EXPL"]),
+                "base_source": str(r.get("BASE EVALUACIÓN", "Techo 100%"))
             }
         except Exception:
             pass
@@ -2108,9 +2124,9 @@ def get_post_session_multivariable_table(
             )
 
         comparison_rows.append({
-            "Dorsal": m.dorsal,
             "Jugador": f"#{m.dorsal} {m.player_name.upper()}",
             "Posición": m.position.upper(),
+            "Dorsal": m.dorsal,
             # Distancia Total
             "DT Real (km)": real_td_km,
             "DT Meta (km)": tgt["min_td_km"],
@@ -2133,6 +2149,7 @@ def get_post_session_multivariable_table(
             "% DCC": round(comp_dec, 1),
             # Diagnóstico
             "Diagnóstico de Estímulo": diag,
+            "Entreno/Partido Referencia": tgt.get("base_source", "Techo 100%"),
             "Estado": status,
             "Color": color_hex
         })

@@ -1018,7 +1018,7 @@ if menu == "📊 Panel de Sesión & Semáforo":
                             <div style="color: #F59E0B; font-size: 0.85rem; font-weight: 700;">{pl['hsr_m']:.0f}m</div>
                         </div>
                         <div>
-                            <div style="color: #64748B; font-size: 0.65rem; text-transform: uppercase;">Sprint >24</div>
+                            <div style="color: #64748B; font-size: 0.65rem; text-transform: uppercase;">Sprint >25</div>
                             <div style="color: #A855F7; font-size: 0.85rem; font-weight: 700;">{pl['sprint_m']:.0f}m</div>
                         </div>
                         <div>
@@ -1035,15 +1035,14 @@ if menu == "📊 Panel de Sesión & Semáforo":
         tbl_data = []
         for pl in filtered_players:
             tbl_data.append({
-                "Dorsal": f"#{pl['dorsal']}",
-                "Jugador": pl["name"],
+                "Jugador": f"#{pl['dorsal']} {pl['name']}",
                 "Demarcación": pl["position"],
                 "Decisión Once": pl["xi_badge"],
                 "Minutos 7D": f"{pl['mins']:.0f}'",
                 "Sesiones": pl["sessions_count"],
                 "Dist. Total (km)": pl["td_km"],
                 "HSR >21 (m)": pl["hsr_m"],
-                "Sprint >24 (m)": pl["sprint_m"],
+                "Sprint >25 (m)": pl["sprint_m"],
                 "AC.E Totales": pl["eff"],
                 "ACWR (EWMA)": pl["acwr"],
                 "Recomendación Staff": pl["xi_rec"]
@@ -1054,15 +1053,14 @@ if menu == "📊 Panel de Sesión & Semáforo":
             use_container_width=True,
             hide_index=True,
             column_config={
-                "Dorsal": st.column_config.TextColumn("Nº", width="small"),
-                "Jugador": st.column_config.TextColumn("Jugador", width="medium"),
+                "Jugador": st.column_config.TextColumn("Jugador", pinned=True, width="medium"),
                 "Demarcación": st.column_config.TextColumn("Posición", width="small"),
                 "Decisión Once": st.column_config.TextColumn("Decisión Once Inicial", width="medium"),
                 "Minutos 7D": st.column_config.TextColumn("Minutos", width="small"),
                 "Sesiones": st.column_config.NumberColumn("Ses.", format="%d"),
                 "Dist. Total (km)": st.column_config.NumberColumn("Dist. Total", format="%.2f km"),
                 "HSR >21 (m)": st.column_config.NumberColumn("HSR >21", format="%d m"),
-                "Sprint >24 (m)": st.column_config.NumberColumn("Sprint >24", format="%d m"),
+                "Sprint >25 (m)": st.column_config.NumberColumn("Sprint >25", format="%d m"),
                 "AC.E Totales": st.column_config.NumberColumn("AC.E", format="%d"),
                 "ACWR (EWMA)": st.column_config.NumberColumn("ACWR", format="%.2f"),
                 "Recomendación Staff": st.column_config.TextColumn("Pauta de Selección", width="large")
@@ -1203,12 +1201,12 @@ if menu == "📊 Panel de Sesión & Semáforo":
                 df_ci_display = df_ci_display[df_ci_display["diagnosis"].str.contains("Sobre-estímulo|Exceso|Sobrecarga", na=False)]
 
         df_table_ci = df_ci_display[[
-            "dorsal", "player_name", "position",
+            "player_name", "position", "dorsal",
             "comp_pct_td", "comp_pct_hsr", "comp_pct_eff",
             "diagnosis", "val_real_formatted", "val_target_formatted", "val_match_100_formatted", "peak_match_name"
         ]].copy()
         df_table_ci.columns = [
-            "Dorsal", "Jugador", "Posición",
+            "Jugador", "Posición", "Dorsal",
             "% Cumpl. DT", "% Cumpl. HSR", "% Cumpl. AC.E",
             "Diagnóstico de Estímulo", f"Real ({day_metric_label})",
             f"Prescrito ({day_pct}%)", "Partido Récord (100%)", "Partido Referencia"
@@ -1245,6 +1243,13 @@ if menu == "📊 Panel de Sesión & Semáforo":
             })
             .map(highlight_diag, subset=["Diagnóstico de Estímulo"])
             .map(highlight_metric_pct, subset=["% Cumpl. DT", "% Cumpl. HSR", "% Cumpl. AC.E"]),
+            column_config={
+                "Jugador": st.column_config.TextColumn("Jugador", pinned=True, width="medium"),
+                "Posición": st.column_config.TextColumn("Posición", width="small"),
+                "Dorsal": st.column_config.TextColumn("Nº", width="small"),
+                "Diagnóstico de Estímulo": st.column_config.TextColumn("Diagnóstico de Estímulo", width="large"),
+                "Partido Referencia": st.column_config.TextColumn("Partido Referencia", width="medium"),
+            },
             width="stretch",
             hide_index=True
         )
@@ -1289,6 +1294,12 @@ if menu == "📊 Panel de Sesión & Semáforo":
                     })
                     .map(highlight_diag, subset=["Diagnóstico de Estímulo"])
                     .map(highlight_post_cell, subset=["% DT", "% HSR", "% Sprint", "% ACC", "% DCC"]),
+                    column_config={
+                        "Jugador": st.column_config.TextColumn("Jugador", pinned=True, width="medium"),
+                        "Posición": st.column_config.TextColumn("Posición", width="small"),
+                        "Diagnóstico de Estímulo": st.column_config.TextColumn("Diagnóstico de Estímulo", width="large"),
+                        "Entreno/Partido Referencia": st.column_config.TextColumn("Entreno/Partido Referencia", width="medium"),
+                    },
                     width="stretch",
                     hide_index=True
                 )
@@ -1921,13 +1932,14 @@ elif menu in ["📋 Planificación & Comparativa (50/70/80%)", "📋 Planificaci
                 return ""
 
         display_cols = [
-            "Dorsal", "Jugador", "Posición",
+            "Jugador", "Posición",
             "DT Real (km)", "DT Meta (km)", "% DT",
             "HSR Real (m)", "HSR Meta (m)", "% HSR",
             "Sprint Real (m)", "Sprint Meta (m)", "% Sprint",
             "ACC Real", "ACC Meta", "% ACC",
             "DCC Real", "DCC Meta", "% DCC",
-            "Diagnóstico de Estímulo"
+            "Diagnóstico de Estímulo",
+            "Entreno/Partido Referencia"
         ]
         available_cols = [c for c in display_cols if c in df_view.columns]
 
@@ -1948,6 +1960,12 @@ elif menu in ["📋 Planificación & Comparativa (50/70/80%)", "📋 Planificaci
             })
             .map(highlight_diag, subset=["Diagnóstico de Estímulo"])
             .map(highlight_comp_cell, subset=["% DT", "% HSR", "% Sprint", "% ACC", "% DCC"]),
+            column_config={
+                "Jugador": st.column_config.TextColumn("Jugador", pinned=True, width="medium"),
+                "Posición": st.column_config.TextColumn("Posición", width="small"),
+                "Diagnóstico de Estímulo": st.column_config.TextColumn("Diagnóstico de Estímulo", width="large"),
+                "Entreno/Partido Referencia": st.column_config.TextColumn("Entreno/Partido Referencia", width="medium"),
+            },
             width="stretch",
             hide_index=True
         )
