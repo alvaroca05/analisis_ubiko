@@ -2712,5 +2712,211 @@ def get_weekly_microcycle_summary(
     }
 
 
+def get_starting_xi_weekly_readiness(
+    db: Session,
+    target_session_id: int,
+    club_id: int = DEFAULT_CLUB_ID
+) -> Dict[str, Any]:
+    """
+    Calcula la carga semanal acumulada (últimos 7 días) y la disponibilidad física
+    de cada futbolista para la toma de decisiones del Once Inicial por parte del Cuerpo Técnico.
+    """
+    sess = db.query(TrainingSession).filter(TrainingSession.id == target_session_id).first()
+    if not sess:
+        return {}
+
+    sess_date = sess.date
+    start_date = sess_date - timedelta(days=6)
+
+    # 1. Sesiones en la ventana de 7 días previa/incluyendo la sesión
+    sessions = (
+        db.query(TrainingSession)
+        .filter(
+            TrainingSession.club_id == club_id,
+            TrainingSession.date >= start_date,
+            TrainingSession.date <= sess_date
+        )
+        .order_by(TrainingSession.date.asc(), TrainingSession.id.asc())
+        .all()
+    )
+
+    # Desduplicar por (date, microcycle_day)
+    sessions_by_day = {}
+    for s in sessions:
+        key = (s.date, s.microcycle_day)
+        if key not in sessions_by_day or s.id > sessions_by_day[key].id:
+            sessions_by_day[key] = s
+    unique_sessions = sorted(sessions_by_day.values(), key=lambda x: x.date)
+
+    # 2. ACWR actual al día de la sesión
+    df_acwr = get_latest_player_acwr(db, target_date=sess_date, club_id=club_id)
+    acwr_dict = {}
+    if not df_acwr.empty:
+        for _, r in df_acwr.iterrows():
+            acwr_dict[r["player_id"]] = {
+                "acwr": float(r["acwr"]) if pd.notna(r["acwr"]) else 1.0,
+                "status": r["acwr_status"],
+                "color": r["acwr_color"]
+            }
+
+    # 3. Techos de 100% de cada jugador
+    peaks = db.query(PlayerMatchPeak).filter(PlayerMatchPeak.club_id == club_id).all()
+    peaks_dict = {p.player_id: p for p in peaks}
+
+    # 4. Agregación de métricas de los últimos 7 días
+    p_load = defaultdict(lambda: {
+        "td_m": 0.0, "hsr_m": 0.0, "sprint_m": 0.0,
+        "acc": 0, "dec": 0, "eff": 0, "mins": 0.0,
+        "sessions_count": 0, "sessions_detail": []
+    })
+
+    for s in unique_sessions:
+        mets = db.query(PlayerMetric).filter(PlayerMetric.session_id == s.id).all()
+        for m in mets:
+            pid = m.player_id
+            td = float(m.total_distance or 0.0)
+            hsr = float(m.hsr_distance or 0.0)
+            raw_sp = float(m.sprint_distance or 0.0)
+            sp_m = round(raw_sp * 18.0, 1) if raw_sp <= 35.0 else round(raw_sp, 1)
+            acc_c = int(m.accelerations_eff or 0)
+            dec_c = int(m.decelerations_eff or 0)
+            mins_c = float(m.minutes_played or 0.0)
+
+            p_load[pid]["td_m"] += td
+            p_load[pid]["hsr_m"] += hsr
+            p_load[pid]["sprint_m"] += sp_m
+            p_load[pid]["acc"] += acc_c
+            p_load[pid]["dec"] += dec_c
+            p_load[pid]["eff"] += (acc_c + dec_c)
+            p_load[pid]["mins"] += mins_c
+            p_load[pid]["sessions_count"] += 1
+            p_load[pid]["sessions_detail"].append(f"{s.microcycle_day} ({mins_c:.0f}')")
+
+    players = db.query(Player).filter(Player.club_id == club_id, Player.active == True).order_by(Player.dorsal.asc()).all()
+
+    # Hallar máximos del grupo para barras relativas
+    max_td_m = max([ld["td_m"] for ld in p_load.values()] + [1.0])
+    max_hsr_m = max([ld["hsr_m"] for ld in p_load.values()] + [1.0])
+
+    player_cards = []
+    optimal_list = []
+    caution_list = []
+    danger_list = []
+    deficit_list = []
+
+    pos_order = {"Portero": 0, "Lateral": 1, "Central": 2, "Mediocentro": 3, "Extremo": 4, "Delantero": 5}
+
+    for p in players:
+        ld = p_load.get(p.id, {
+            "td_m": 0.0, "hsr_m": 0.0, "sprint_m": 0.0,
+            "acc": 0, "dec": 0, "eff": 0, "mins": 0.0,
+            "sessions_count": 0, "sessions_detail": []
+        })
+        ac_info = acwr_dict.get(p.id, {"acwr": 1.0, "status": "Óptimo", "color": "#10B981"})
+        acwr_val = round(ac_info["acwr"], 2)
+        td_km = round(ld["td_m"] / 1000.0, 1)
+        hsr_m = round(ld["hsr_m"], 0)
+        sprint_m = round(ld["sprint_m"], 0)
+        eff_count = ld["eff"]
+        mins_played = round(ld["mins"], 0)
+        sess_cnt = ld["sessions_count"]
+
+        # Techos de máxima exigencia individual
+        pk = peaks_dict.get(p.id)
+        td_100 = round((pk.peak_td or 10000.0) / 1000.0, 1) if pk else 10.0
+        hsr_100 = round(pk.peak_hsr or 500.0, 0) if pk else 500.0
+
+        pct_max_td = min(100.0, round((ld["td_m"] / max_td_m) * 100.0, 0))
+        pct_max_hsr = min(100.0, round((ld["hsr_m"] / max_hsr_m) * 100.0, 0))
+
+        # Clasificación para el ONCE INICIAL:
+        if mins_played == 0:
+            category = "Sin Carga"
+            xi_badge = "⚪ Sin Carga (0 Min)"
+            xi_badge_class = "badge-sub"
+            xi_color = "#64748B"
+            xi_rec = "Sin minutos en los últimos 7 días. En fase de readaptación física o baja médica."
+            xi_priority = 5
+            deficit_list.append(p.name)
+        elif acwr_val > 1.45 or (hsr_m > 950 and mins_played > 400):
+            category = "Riesgo Sobrecarga"
+            xi_badge = "🔴 Desaconsejado Inicio (Rotar)"
+            xi_badge_class = "badge-danger"
+            xi_color = "#EF4444"
+            xi_rec = f"Fatiga crítica acumulada (ACWR {acwr_val:.2f}). Elevado riesgo de lesión o caída física si inicia los 90'. Aconsejable descanso o máx. 25-30' finales."
+            xi_priority = 1
+            danger_list.append(p.name)
+        elif acwr_val > 1.25 or (hsr_m > 750 and mins_played > 340):
+            category = "Precaución"
+            xi_badge = "🟡 Precaución Titular"
+            xi_badge_class = "badge-warning"
+            xi_color = "#F59E0B"
+            xi_rec = f"Carga semanal en percentil alto (ACWR {acwr_val:.2f} | {hsr_m:.0f}m HSR). Apto para el once, pero programar sustitución preventiva al min 60-70."
+            xi_priority = 2
+            caution_list.append(p.name)
+        elif acwr_val >= 0.80 and mins_played >= 100:
+            category = "Óptimo"
+            xi_badge = "🟢 Apto Once Titular"
+            xi_badge_class = "badge-opt"
+            xi_color = "#10B981"
+            xi_rec = f"Sweet Spot ({acwr_val:.2f}). Carga asimilada y máxima reactividad neuromuscular. Plena disponibilidad física para 90'."
+            xi_priority = 3
+            optimal_list.append(p.name)
+        else:
+            category = "Déficit Semanal"
+            xi_badge = "⚪ Revulsivo / Déficit"
+            xi_badge_class = "badge-sub"
+            xi_color = "#94A3B8"
+            xi_rec = f"Bajo volumen semanal ({mins_played:.0f}' acumulados). Fresco muscularmente pero con menor ritmo competitivo. Idóneo como revulsivo de recambio en la 2ª parte."
+            xi_priority = 4
+            deficit_list.append(p.name)
+
+        card = {
+            "player_id": p.id,
+            "dorsal": p.dorsal,
+            "name": p.name,
+            "position": p.position or "Mediocentro",
+            "pos_sort": pos_order.get(p.position, 99),
+            "td_km": td_km,
+            "hsr_m": hsr_m,
+            "sprint_m": sprint_m,
+            "eff": eff_count,
+            "mins": mins_played,
+            "sessions_count": sess_cnt,
+            "sessions_detail": ", ".join(ld["sessions_detail"]),
+            "acwr": acwr_val,
+            "pct_max_td": pct_max_td,
+            "pct_max_hsr": pct_max_hsr,
+            "td_100": td_100,
+            "hsr_100": hsr_100,
+            "category": category,
+            "xi_badge": xi_badge,
+            "xi_badge_class": xi_badge_class,
+            "xi_color": xi_color,
+            "xi_rec": xi_rec,
+            "xi_priority": xi_priority
+        }
+        player_cards.append(card)
+
+    return {
+        "session_id": target_session_id,
+        "session_name": sess.name,
+        "session_date": sess_date,
+        "start_date": start_date,
+        "end_date": sess_date,
+        "sessions_count": len(unique_sessions),
+        "sessions_list": [f"{s.date.strftime('%d/%m')} ({s.microcycle_day})" for s in unique_sessions],
+        "optimal_count": len(optimal_list),
+        "caution_count": len(caution_list),
+        "danger_count": len(danger_list),
+        "deficit_count": len(deficit_list),
+        "optimal_names": optimal_list,
+        "caution_names": caution_list,
+        "danger_names": danger_list,
+        "deficit_names": deficit_list,
+        "players": player_cards
+    }
+
+
 
 

@@ -64,7 +64,8 @@ try:
         get_load_level_preset,
         classify_session_player_states,
         get_available_microcycles,
-        get_weekly_microcycle_summary
+        get_weekly_microcycle_summary,
+        get_starting_xi_weekly_readiness
     )
     from src.services.importer import UbikoImporter
     try:
@@ -582,6 +583,13 @@ def get_cached_weekly_microcycle_summary(start_date: date, end_date: date):
         return get_weekly_microcycle_summary(db, start_date, end_date)
 
 
+@st.cache_data(ttl=300, show_spinner="Analizando cargas semanales...")
+def get_cached_starting_xi_readiness(session_id: int):
+    """Cachea la matriz de carga semanal de 7 días y recomendación de once inicial."""
+    with get_db() as db:
+        return get_starting_xi_weekly_readiness(db, session_id)
+
+
 
 
 
@@ -878,51 +886,188 @@ if menu == "📊 Panel de Sesión & Semáforo":
         )
 
     # ========================================================
-    # 1. SEMÁFORO DE FATIGA Y RIESGO LESIONAL (ACWR - EWMA)
+    # 1. MONITOR DE CARGA SEMANAL Y DECISIÓN DEL ONCE INICIAL
     # ========================================================
-    st.markdown("### 🚦 Semáforo de Fatiga y Riesgo Lesional (ACWR)")
-    st.caption("Control de fatiga aguda acumulada sobre aptitud física crónica (Gabbett EWMA).")
+    xi_data = get_cached_starting_xi_readiness(selected_session_id)
+    s_cnt = xi_data.get("sessions_count", 0)
+    w_start = xi_data.get("start_date")
+    w_end = xi_data.get("end_date")
+    range_str = f"{w_start.strftime('%d/%m')} al {w_end.strftime('%d/%m')}" if w_start and w_end else "Últimos 7 días"
 
-    if "acwr" not in df_metrics.columns:
-        df_metrics["acwr"] = 1.0
-    if "acwr_status" not in df_metrics.columns:
-        df_metrics["acwr_status"] = "Óptimo Sweet Spot (0.80-1.30)"
+    st.markdown("### 📋 Monitor de Carga Semanal y Decisión del Once Inicial")
+    st.caption(
+        f"Control de carga acumulada en el microciclo previo ({range_str} | **{s_cnt} sesiones analizadas**) "
+        "para asistir al cuerpo técnico en la confección del once inicial según fatiga aguda (ACWR), sprint/HSR y disponibilidad física."
+    )
 
-    danger_players = df_metrics[df_metrics["acwr"] > 1.5]
-    caution_players = df_metrics[(df_metrics["acwr"] > 1.3) & (df_metrics["acwr"] <= 1.5)]
-    optimal_players = df_metrics[(df_metrics["acwr"] >= 0.8) & (df_metrics["acwr"] <= 1.3)]
-    under_players = df_metrics[df_metrics["acwr"] < 0.8]
-
-    sem1, sem2, sem3 = st.columns(3)
-    with sem1:
+    # 4 Tarjetas Ejecutivas de Decisión Táctica
+    col_x1, col_x2, col_x3, col_x4 = st.columns(4)
+    with col_x1:
         st.markdown(f"""
-        <div class="metric-card" style="border-left: 5px solid #10B981; background: rgba(16, 185, 129, 0.08);">
-            <div class="metric-title" style="color: #6EE7B7;">🟢 Óptimo (Sweet Spot 0.8 - 1.3)</div>
-            <div class="metric-value" style="color: #10B981;">{len(optimal_players)} <span style="font-size:0.9rem; color:#94A3B8;">jugadores</span></div>
-            <div class="metric-subtitle">Carga asimilable. Mínimo riesgo lesional.</div>
+        <div style="background: rgba(16, 185, 129, 0.08); border-top: 4px solid #10B981; border-radius: 10px; padding: 12px 14px; border-left: 1px solid rgba(16, 185, 129, 0.2); border-right: 1px solid rgba(16, 185, 129, 0.2); border-bottom: 1px solid rgba(16, 185, 129, 0.2); min-height: 110px;">
+            <div style="color: #6EE7B7; font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;">🟢 Aptos Once Titular</div>
+            <div style="color: #10B981; font-size: 1.8rem; font-weight: 800; margin: 2px 0;">{xi_data.get('optimal_count', 0)} <span style="font-size: 0.85rem; font-weight: 500; color: #94A3B8;">jugadores</span></div>
+            <div style="color: #94A3B8; font-size: 0.74rem;">Sweet Spot (0.80 - 1.25). Carga asimilada y máxima reactividad para 90'.</div>
         </div>
         """, unsafe_allow_html=True)
 
-    with sem2:
-        caution_names = ", ".join([f"#{row.dorsal} {row.player_name.split()[0]}" for _, row in caution_players.iterrows()]) if not caution_players.empty else "Ninguno"
+    with col_x2:
         st.markdown(f"""
-        <div class="metric-card" style="border-left: 5px solid #F59E0B; background: rgba(245, 158, 11, 0.08);">
-            <div class="metric-title" style="color: #FCD34D;">🟡 Alerta Fatiga (1.3 - 1.5)</div>
-            <div class="metric-value" style="color: #F59E0B;">{len(caution_players)} <span style="font-size:0.9rem; color:#94A3B8;">jugadores</span></div>
-            <div class="metric-subtitle"><b>Atención:</b> {caution_names}</div>
+        <div style="background: rgba(245, 158, 11, 0.08); border-top: 4px solid #F59E0B; border-radius: 10px; padding: 12px 14px; border-left: 1px solid rgba(245, 158, 11, 0.2); border-right: 1px solid rgba(245, 158, 11, 0.2); border-bottom: 1px solid rgba(245, 158, 11, 0.2); min-height: 110px;">
+            <div style="color: #FCD34D; font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;">🟡 Precaución Titular</div>
+            <div style="color: #F59E0B; font-size: 1.8rem; font-weight: 800; margin: 2px 0;">{xi_data.get('caution_count', 0)} <span style="font-size: 0.85rem; font-weight: 500; color: #94A3B8;">jugadores</span></div>
+            <div style="color: #94A3B8; font-size: 0.74rem;">Carga semanal alta o fatiga moderada. Aptos, pero programar recambio min 60-70.</div>
         </div>
         """, unsafe_allow_html=True)
 
-    with sem3:
-        danger_names = ", ".join([f"#{row.dorsal} {row.player_name.split()[0]}" for _, row in danger_players.iterrows()]) if not danger_players.empty else "Ninguno"
-        danger_bg = "rgba(239, 68, 68, 0.15)" if not danger_players.empty else "rgba(239, 68, 68, 0.05)"
+    with col_x3:
         st.markdown(f"""
-        <div class="metric-card" style="border-left: 5px solid #EF4444; background: {danger_bg};">
-            <div class="metric-title" style="color: #FCA5A5;">🔴 Riesgo Alto (> 1.5)</div>
-            <div class="metric-value" style="color: #EF4444;">{len(danger_players)} <span style="font-size:0.9rem; color:#94A3B8;">jugadores</span></div>
-            <div class="metric-subtitle"><b>Peligro lesión:</b> {danger_names}</div>
+        <div style="background: rgba(239, 68, 68, 0.08); border-top: 4px solid #EF4444; border-radius: 10px; padding: 12px 14px; border-left: 1px solid rgba(239, 68, 68, 0.2); border-right: 1px solid rgba(239, 68, 68, 0.2); border-bottom: 1px solid rgba(239, 68, 68, 0.2); min-height: 110px;">
+            <div style="color: #FCA5A5; font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;">🔴 Desaconsejado / Rotar</div>
+            <div style="color: #EF4444; font-size: 1.8rem; font-weight: 800; margin: 2px 0;">{xi_data.get('danger_count', 0)} <span style="font-size: 0.85rem; font-weight: 500; color: #94A3B8;">jugadores</span></div>
+            <div style="color: #94A3B8; font-size: 0.74rem;">Sobrecarga aguda crítica (ACWR > 1.45) o fatiga extrema. Riesgo lesional elevado.</div>
         </div>
         """, unsafe_allow_html=True)
+
+    with col_x4:
+        st.markdown(f"""
+        <div style="background: rgba(148, 163, 184, 0.08); border-top: 4px solid #94A3B8; border-radius: 10px; padding: 12px 14px; border-left: 1px solid rgba(148, 163, 184, 0.2); border-right: 1px solid rgba(148, 163, 184, 0.2); border-bottom: 1px solid rgba(148, 163, 184, 0.2); min-height: 110px;">
+            <div style="color: #CBD5E1; font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;">⚪ Revulsivo / Déficit</div>
+            <div style="color: #94A3B8; font-size: 1.8rem; font-weight: 800; margin: 2px 0;">{xi_data.get('deficit_count', 0)} <span style="font-size: 0.85rem; font-weight: 500; color: #94A3B8;">jugadores</span></div>
+            <div style="color: #94A3B8; font-size: 0.74rem;">Menos de 100' semanales. Gran frescura neuromuscular; perfil ideal para 2ª mitad.</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.write("")
+
+    all_player_cards = xi_data.get("players", [])
+
+    # Filtros interactivos de exploración
+    f_c1, f_c2, f_c3 = st.columns([1.5, 1.8, 1.2])
+    with f_c1:
+        pos_options = ["Todas", "Porteros", "Defensas", "Centrocampistas", "Delanteros"]
+        selected_pos_group = st.pills("Demarcación:", pos_options, default="Todas", key="xi_pos_pill")
+    with f_c2:
+        cat_options = ["Todos", "🟢 Apto Titular", "🟡 Precaución", "🔴 Desaconsejado / Rotar", "⚪ Revulsivo / Sin Carga"]
+        selected_cat = st.pills("Estado Once:", cat_options, default="Todos", key="xi_cat_pill")
+    with f_c3:
+        view_mode = st.radio(
+            "Visualización:",
+            ["Tarjetas Tácticas", "Tabla Comparativa"],
+            horizontal=True,
+            key="xi_view_mode"
+        )
+
+    # Filtrar jugadores
+    filtered_players = all_player_cards
+    if selected_pos_group != "Todas":
+        pos_map = {
+            "Porteros": ["Portero"],
+            "Defensas": ["Defensa Central", "Lateral Derecho", "Lateral Izquierdo", "Lateral"],
+            "Centrocampistas": ["Mediocentro", "Mediocentro Defensivo", "Centrocampista", "Mediapunta", "Interior"],
+            "Delanteros": ["Extremo Derecho", "Extremo Izquierdo", "Delantero Centro", "Delantero"]
+        }
+        allowed_positions = pos_map.get(selected_pos_group, [])
+        filtered_players = [
+            p for p in filtered_players
+            if any(p["position"].lower() in ap.lower() or ap.lower() in p["position"].lower() for ap in allowed_positions)
+        ]
+
+    if selected_cat != "Todos":
+        if "Apto" in selected_cat:
+            filtered_players = [p for p in filtered_players if p["category"] == "Óptimo"]
+        elif "Precaución" in selected_cat:
+            filtered_players = [p for p in filtered_players if p["category"] == "Precaución"]
+        elif "Desaconsejado" in selected_cat:
+            filtered_players = [p for p in filtered_players if p["category"] == "Riesgo Sobrecarga"]
+        elif "Revulsivo" in selected_cat:
+            filtered_players = [p for p in filtered_players if p["category"] in ["Déficit Semanal", "Sin Carga"]]
+
+    if not filtered_players:
+        st.info("ℹ️ No hay jugadores que coincidan con los filtros seleccionados.")
+    elif view_mode == "Tarjetas Tácticas":
+        card_cols = st.columns(3)
+        for idx, pl in enumerate(filtered_players):
+            col_idx = idx % 3
+            with card_cols[col_idx]:
+                border_color = pl["xi_color"]
+                badge_bg = (
+                    "rgba(16, 185, 129, 0.15)" if pl["category"] == "Óptimo" else
+                    "rgba(245, 158, 11, 0.15)" if pl["category"] == "Precaución" else
+                    "rgba(239, 68, 68, 0.2)" if pl["category"] == "Riesgo Sobrecarga" else
+                    "rgba(148, 163, 184, 0.12)"
+                )
+                st.markdown(f"""
+                <div style="background: #1E293B; border-radius: 10px; border: 1px solid #334155; border-left: 4px solid {border_color}; padding: 12px 14px; margin-bottom: 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px;">
+                        <div>
+                            <span style="color: #F8FAFC; font-weight: 700; font-size: 0.95rem;">#{pl['dorsal']} {pl['name']}</span>
+                            <div style="color: #94A3B8; font-size: 0.72rem;">{pl['position']} &bull; {pl['sessions_count']} ses. ({pl['mins']:.0f}')</div>
+                        </div>
+                        <span style="background: {badge_bg}; color: {border_color}; border: 1px solid {border_color}; padding: 2px 7px; border-radius: 6px; font-size: 0.70rem; font-weight: 700;">
+                            {pl['xi_badge']}
+                        </span>
+                    </div>
+                    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; background: #0F172A; padding: 6px 8px; border-radius: 6px; margin: 8px 0; text-align: center;">
+                        <div>
+                            <div style="color: #64748B; font-size: 0.65rem; text-transform: uppercase;">Dist. 7D</div>
+                            <div style="color: #38BDF8; font-size: 0.85rem; font-weight: 700;">{pl['td_km']:.1f}k</div>
+                        </div>
+                        <div>
+                            <div style="color: #64748B; font-size: 0.65rem; text-transform: uppercase;">HSR >21</div>
+                            <div style="color: #F59E0B; font-size: 0.85rem; font-weight: 700;">{pl['hsr_m']:.0f}m</div>
+                        </div>
+                        <div>
+                            <div style="color: #64748B; font-size: 0.65rem; text-transform: uppercase;">Sprint >24</div>
+                            <div style="color: #A855F7; font-size: 0.85rem; font-weight: 700;">{pl['sprint_m']:.0f}m</div>
+                        </div>
+                        <div>
+                            <div style="color: #64748B; font-size: 0.65rem; text-transform: uppercase;">ACWR</div>
+                            <div style="color: {border_color}; font-size: 0.85rem; font-weight: 700;">{pl['acwr']:.2f}</div>
+                        </div>
+                    </div>
+                    <div style="font-size: 0.72rem; color: #CBD5E1; background: rgba(15, 23, 42, 0.6); padding: 6px 8px; border-radius: 4px; border-left: 2px solid {border_color}; line-height: 1.3;">
+                        💡 <b>Staff:</b> {pl['xi_rec']}
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+    else:
+        tbl_data = []
+        for pl in filtered_players:
+            tbl_data.append({
+                "Dorsal": f"#{pl['dorsal']}",
+                "Jugador": pl["name"],
+                "Demarcación": pl["position"],
+                "Decisión Once": pl["xi_badge"],
+                "Minutos 7D": f"{pl['mins']:.0f}'",
+                "Sesiones": pl["sessions_count"],
+                "Dist. Total (km)": pl["td_km"],
+                "HSR >21 (m)": pl["hsr_m"],
+                "Sprint >24 (m)": pl["sprint_m"],
+                "AC.E Totales": pl["eff"],
+                "ACWR (EWMA)": pl["acwr"],
+                "Recomendación Staff": pl["xi_rec"]
+            })
+        df_xi = pd.DataFrame(tbl_data)
+        st.dataframe(
+            df_xi,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Dorsal": st.column_config.TextColumn("Nº", width="small"),
+                "Jugador": st.column_config.TextColumn("Jugador", width="medium"),
+                "Demarcación": st.column_config.TextColumn("Posición", width="small"),
+                "Decisión Once": st.column_config.TextColumn("Decisión Once Inicial", width="medium"),
+                "Minutos 7D": st.column_config.TextColumn("Minutos", width="small"),
+                "Sesiones": st.column_config.NumberColumn("Ses.", format="%d"),
+                "Dist. Total (km)": st.column_config.NumberColumn("Dist. Total", format="%.2f km"),
+                "HSR >21 (m)": st.column_config.NumberColumn("HSR >21", format="%d m"),
+                "Sprint >24 (m)": st.column_config.NumberColumn("Sprint >24", format="%d m"),
+                "AC.E Totales": st.column_config.NumberColumn("AC.E", format="%d"),
+                "ACWR (EWMA)": st.column_config.NumberColumn("ACWR", format="%.2f"),
+                "Recomendación Staff": st.column_config.TextColumn("Pauta de Selección", width="large")
+            }
+        )
 
     st.write("")
 
