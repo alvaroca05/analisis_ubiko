@@ -17,14 +17,24 @@ if "sqlite" in DATABASE_URL.lower():
     )
 else:
     # PostgreSQL / Supabase Transaction Pooler (puerto 6543) o Session Pooler (puerto 5432)
-    engine = create_engine(
-        DATABASE_URL,
-        pool_pre_ping=True,
-        pool_recycle=300,
-        pool_size=5,
-        max_overflow=10,
-        echo=False
-    )
+    try:
+        engine = create_engine(
+            DATABASE_URL,
+            pool_pre_ping=True,
+            pool_recycle=300,
+            pool_size=5,
+            max_overflow=10,
+            echo=False
+        )
+    except Exception as e_engine:
+        import logging
+        logging.error(f"Fallo al inicializar engine con {DATABASE_URL}: {e_engine}. Fallback a SQLite local.")
+        from src.config import DATABASE_PATH
+        engine = create_engine(
+            f"sqlite:///{DATABASE_PATH.as_posix()}",
+            connect_args={"check_same_thread": False},
+            echo=False
+        )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, expire_on_commit=False, bind=engine)
 Base = declarative_base()

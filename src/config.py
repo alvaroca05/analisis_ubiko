@@ -24,7 +24,9 @@ def _clean_database_url(raw_url: str) -> str:
     """
     Sanitiza la URL de conexión a la base de datos:
     - Normaliza prefijo postgres:// a postgresql://
-    - Elimina parámetros de query string incompatibles con libpq/psycopg2 DSN (como pgbouncer=true)
+    - Detecta automáticamente los controladores PostgreSQL instalados (psycopg v3 o psycopg2 v2)
+    - Adapta el dialecto de SQLAlchemy dinámicamente para prevenir errores de 'No module named psycopg'
+    - Elimina parámetros de query string incompatibles con libpq/psycopg DSN (como pgbouncer=true)
     """
     if not raw_url:
         return f"sqlite:///{DATABASE_PATH.as_posix()}"
@@ -37,12 +39,39 @@ def _clean_database_url(raw_url: str) -> str:
     if url.startswith("sqlite"):
         return url
 
-    # Para PostgreSQL, limpiar parámetros de consulta incompatibles con psycopg2
+    # Comprobar qué controladores PostgreSQL están disponibles en el entorno de ejecución
+    try:
+        import psycopg  # psycopg v3
+        has_psycopg3 = True
+    except ImportError:
+        has_psycopg3 = False
+
+    try:
+        import psycopg2  # psycopg2 v2
+        has_psycopg2 = True
+    except ImportError:
+        has_psycopg2 = False
+
+    # Normalizar el controlador en el esquema de la URL:
+    if "postgresql+psycopg://" in url:
+        if not has_psycopg3 and has_psycopg2:
+            url = url.replace("postgresql+psycopg://", "postgresql+psycopg2://", 1)
+    elif "postgresql+psycopg2://" in url:
+        if not has_psycopg2 and has_psycopg3:
+            url = url.replace("postgresql+psycopg2://", "postgresql+psycopg://", 1)
+    elif url.startswith("postgresql://") and not ("+" in url.split("://")[0]):
+        # URL genérica 'postgresql://': elegir el controlador disponible
+        if has_psycopg3 and not has_psycopg2:
+            url = url.replace("postgresql://", "postgresql+psycopg://", 1)
+        elif has_psycopg2:
+            url = url.replace("postgresql://", "postgresql+psycopg2://", 1)
+
+    # Para PostgreSQL, limpiar parámetros de consulta incompatibles con psycopg/libpq
     try:
         parsed = urlparse(url)
         if parsed.query:
             query_params = parse_qs(parsed.query, keep_blank_values=True)
-            # Lista de parámetros incompatibles con psycopg2/libpq DSN
+            # Lista de parámetros incompatibles con psycopg/libpq DSN
             unsupported_params = {"pgbouncer", "schema", "connection_limit", "pool_timeout"}
             cleaned_params = {k: v for k, v in query_params.items() if k.lower() not in unsupported_params}
             
@@ -55,7 +84,26 @@ def _clean_database_url(raw_url: str) -> str:
 
     return url
 
-DATABASE_URL = _clean_database_url(os.getenv("DATABASE_URL", f"sqlite:///{DATABASE_PATH.as_posix()}"))
+
+def get_configured_database_url() -> str:
+    """Obtiene la URL de base de datos desde variables de entorno o st.secrets."""
+    raw = os.getenv("DATABASE_URL")
+    if not raw:
+        try:
+            import streamlit as st
+            if hasattr(st, "secrets"):
+                if "DATABASE_URL" in st.secrets:
+                    raw = str(st.secrets["DATABASE_URL"])
+                elif "connections" in st.secrets and "postgresql" in st.secrets["connections"]:
+                    raw = str(st.secrets["connections"]["postgresql"].get("url", ""))
+                elif "postgres" in st.secrets and "url" in st.secrets["postgres"]:
+                    raw = str(st.secrets["postgres"].get("url", ""))
+        except Exception:
+            pass
+    return _clean_database_url(raw or f"sqlite:///{DATABASE_PATH.as_posix()}")
+
+
+DATABASE_URL = get_configured_database_url()
 
 # Asegurar que las carpetas existan
 DATA_DIR.mkdir(parents=True, exist_ok=True)
