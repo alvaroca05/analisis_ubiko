@@ -710,37 +710,36 @@ with st.sidebar:
         st.warning("No hay sesiones en la base de datos.")
         selected_session_id = None
 
-    st.divider()
-    st.markdown('<div class="metric-title" style="margin-bottom: 6px;">Sincronización UBIKO</div>', unsafe_allow_html=True)
+    with st.expander("🔄 Sincronización Web UBIKO (Nuevas Sesiones)", expanded=False):
+        st.caption("💡 **Base de datos permanentemente actualizada:** Todas las sesiones ya están guardadas en Supabase. Usa este botón **únicamente** cuando el equipo acabe de disputar un nuevo entreno/partido y se hayan subido los chalecos a la web de UBIKO.")
+        sync_from_date = st.date_input("Recopilar desde fecha:", value=date(2026, 9, 3), key="sidebar_sync_date")
+        col_opt1, col_opt2 = st.columns(2)
+        with col_opt1:
+            force_sync = st.checkbox("Forzar todo", value=False, key="sidebar_force_sync", help="Re-descarga e ingesta sesiones en Supabase aunque ya existan.")
+        with col_opt2:
+            visible_sync = st.checkbox("Ver navegador", value=False, key="sidebar_visible_sync", help="Muestra la ventana del navegador para verificar el login o descargas en UBIKO.")
 
-    sync_from_date = st.date_input("Recopilar desde fecha:", value=date(2026, 9, 3), key="sidebar_sync_date")
-    col_opt1, col_opt2 = st.columns(2)
-    with col_opt1:
-        force_sync = st.checkbox("Forzar todo", value=False, key="sidebar_force_sync", help="Re-descarga e ingesta sesiones en Supabase aunque ya existan.")
-    with col_opt2:
-        visible_sync = st.checkbox("Ver navegador", value=False, key="sidebar_visible_sync", help="Muestra la ventana del navegador para verificar el login o descargas en UBIKO.")
+        if st.button("Sincronizar Telemetría", type="primary", use_container_width=True):
+            with st.spinner("Conectando con UBIKO Web y guardando en Supabase..."):
+                import importlib
+                import ubiko_sync
+                importlib.reload(ubiko_sync)
+                res_sync = ubiko_sync.sync_latest_session(headless=not visible_sync, force=force_sync, min_date=sync_from_date)
+                st.cache_data.clear()
 
-    if st.button("Sincronizar Telemetría", type="primary", use_container_width=True):
-        with st.spinner("Conectando con UBIKO Web y guardando en Supabase..."):
-            import importlib
-            import ubiko_sync
-            importlib.reload(ubiko_sync)
-            res_sync = ubiko_sync.sync_latest_session(headless=not visible_sync, force=force_sync, min_date=sync_from_date)
-            st.cache_data.clear()
+                is_success = res_sync.get("success", False)
+                synced_count = res_sync.get("synced_count", 0)
+                msg = res_sync.get("message", "Sincronización con Supabase completada.")
 
-            is_success = res_sync.get("success", False)
-            synced_count = res_sync.get("synced_count", 0)
-            msg = res_sync.get("message", "Sincronización con Supabase completada.")
-
-            if is_success and synced_count > 0:
-                st.toast(msg, icon="⚽")
-                st.success(f"{msg}")
-                time.sleep(1.2)
-                st.rerun()
-            elif is_success and synced_count == 0:
-                st.info(f"{msg}")
-            else:
-                st.error(f"{msg}")
+                if is_success and synced_count > 0:
+                    st.toast(msg, icon="⚽")
+                    st.success(f"{msg}")
+                    time.sleep(1.2)
+                    st.rerun()
+                elif is_success and synced_count == 0:
+                    st.info(f"{msg}")
+                else:
+                    st.error(f"{msg}")
 
     with st.expander("Subida Manual de Datos GPS (CSV)", expanded=False):
         st.caption("Si prefieres importar manualmente o te encuentras sin conexión web directa, arrastra el archivo exportado por UBIKO:")
@@ -892,11 +891,12 @@ if menu == "📊 Panel de Sesión & Semáforo":
     s_cnt = xi_data.get("sessions_count", 0)
     w_start = xi_data.get("start_date")
     w_end = xi_data.get("end_date")
-    range_str = f"{w_start.strftime('%d/%m')} al {w_end.strftime('%d/%m')}" if w_start and w_end else "Últimos 7 días"
+    mc_label = xi_data.get("microcycle_label", "Microciclo")
+    range_str = f"{w_start.strftime('%d/%m')} al {w_end.strftime('%d/%m')}" if w_start and w_end else "Semana actual"
 
     st.markdown("### 📋 Monitor de Carga Semanal y Decisión del Once Inicial")
     st.caption(
-        f"Control de carga acumulada en el microciclo previo ({range_str} | **{s_cnt} sesiones analizadas**) "
+        f"Control de carga acumulada en el **{mc_label}** ({range_str} | **{s_cnt} sesiones analizadas**) "
         "para asistir al cuerpo técnico en la confección del once inicial según fatiga aguda (ACWR), sprint/HSR y disponibilidad física."
     )
 
@@ -1010,7 +1010,7 @@ if menu == "📊 Panel de Sesión & Semáforo":
                     </div>
                     <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; background: #0F172A; padding: 6px 8px; border-radius: 6px; margin: 8px 0; text-align: center;">
                         <div>
-                            <div style="color: #64748B; font-size: 0.65rem; text-transform: uppercase;">Dist. 7D</div>
+                            <div style="color: #64748B; font-size: 0.65rem; text-transform: uppercase;">Dist. Semanal</div>
                             <div style="color: #38BDF8; font-size: 0.85rem; font-weight: 700;">{pl['td_km']:.1f}k</div>
                         </div>
                         <div>
@@ -1038,13 +1038,15 @@ if menu == "📊 Panel de Sesión & Semáforo":
                 "Jugador": f"#{pl['dorsal']} {pl['name']}",
                 "Demarcación": pl["position"],
                 "Decisión Once": pl["xi_badge"],
-                "Minutos 7D": f"{pl['mins']:.0f}'",
+                "Minutos Semanales": f"{pl['mins']:.0f}'",
                 "Sesiones": pl["sessions_count"],
-                "Dist. Total (km)": pl["td_km"],
-                "HSR >21 (m)": pl["hsr_m"],
-                "Sprint >25 (m)": pl["sprint_m"],
-                "AC.E Totales": pl["eff"],
+                "Dist. Semanal (km)": pl["td_km"],
+                "HSR Semanal (m)": pl["hsr_m"],
+                "Sprint Semanal (m)": pl["sprint_m"],
+                "AC.E Semanales": pl["eff"],
                 "ACWR (EWMA)": pl["acwr"],
+                "Ref. 100% DT": pl["td_100"],
+                "Ref. 100% HSR": pl["hsr_100"],
                 "Recomendación Staff": pl["xi_rec"]
             })
         df_xi = pd.DataFrame(tbl_data)
@@ -1056,13 +1058,15 @@ if menu == "📊 Panel de Sesión & Semáforo":
                 "Jugador": st.column_config.TextColumn("Jugador", pinned=True, width="medium"),
                 "Demarcación": st.column_config.TextColumn("Posición", width="small"),
                 "Decisión Once": st.column_config.TextColumn("Decisión Once Inicial", width="medium"),
-                "Minutos 7D": st.column_config.TextColumn("Minutos", width="small"),
+                "Minutos Semanales": st.column_config.TextColumn("Minutos", width="small"),
                 "Sesiones": st.column_config.NumberColumn("Ses.", format="%d"),
-                "Dist. Total (km)": st.column_config.NumberColumn("Dist. Total", format="%.2f km"),
-                "HSR >21 (m)": st.column_config.NumberColumn("HSR >21", format="%d m"),
-                "Sprint >25 (m)": st.column_config.NumberColumn("Sprint >25", format="%d m"),
-                "AC.E Totales": st.column_config.NumberColumn("AC.E", format="%d"),
+                "Dist. Semanal (km)": st.column_config.NumberColumn("Dist. Semanal", format="%.2f km"),
+                "HSR Semanal (m)": st.column_config.NumberColumn("HSR >21", format="%d m"),
+                "Sprint Semanal (m)": st.column_config.NumberColumn("Sprint >25", format="%d m"),
+                "AC.E Semanales": st.column_config.NumberColumn("AC.E", format="%d"),
                 "ACWR (EWMA)": st.column_config.NumberColumn("ACWR", format="%.2f"),
+                "Ref. 100% DT": st.column_config.NumberColumn("Ref. 100% DT", format="%.1f km"),
+                "Ref. 100% HSR": st.column_config.NumberColumn("Ref. 100% HSR", format="%d m"),
                 "Recomendación Staff": st.column_config.TextColumn("Pauta de Selección", width="large")
             }
         )

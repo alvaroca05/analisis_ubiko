@@ -2743,9 +2743,34 @@ def get_starting_xi_weekly_readiness(
         return {}
 
     sess_date = sess.date
-    start_date = sess_date - timedelta(days=6)
 
-    # 1. Sesiones en la ventana de 7 días previa/incluyendo la sesión
+    # 1. Determinar el microciclo competitivo semanal:
+    # En periodización táctica, la semana de trabajo se computa desde el partido oficial anterior (o hasta 8 días atrás)
+    # hasta la sesión de entrenamiento objetivo (MD-1, MD-2, etc.).
+    prev_match_candidates = (
+        db.query(TrainingSession)
+        .filter(
+            TrainingSession.club_id == club_id,
+            TrainingSession.date <= sess_date,
+            TrainingSession.date >= sess_date - timedelta(days=8)
+        )
+        .order_by(TrainingSession.date.desc())
+        .all()
+    )
+    prev_matches = [
+        s for s in prev_match_candidates 
+        if is_official_league_match(s) and s.id != target_session_id
+    ]
+
+    if prev_matches:
+        start_date = prev_matches[0].date
+        microcycle_label = f"Microciclo vs {prev_matches[0].name.replace('Partido fútbol 11\' contra ', '').replace('Partido futbol 11\' contra ', '').split('_')[0].strip().title()}"
+    else:
+        # Fallback a 7 días completos previos (incluyendo día -7)
+        start_date = sess_date - timedelta(days=7)
+        microcycle_label = "Últimos 7 Días"
+
+    # Sesiones en la ventana del microciclo semanal previa/incluyendo la sesión
     sessions = (
         db.query(TrainingSession)
         .filter(
@@ -2780,7 +2805,7 @@ def get_starting_xi_weekly_readiness(
     peaks = db.query(PlayerMatchPeak).filter(PlayerMatchPeak.club_id == club_id).all()
     peaks_dict = {p.player_id: p for p in peaks}
 
-    # 4. Agregación de métricas de los últimos 7 días
+    # 4. Agregación de métricas de la semana / microciclo
     p_load = defaultdict(lambda: {
         "td_m": 0.0, "hsr_m": 0.0, "sprint_m": 0.0,
         "acc": 0, "dec": 0, "eff": 0, "mins": 0.0,
@@ -2847,12 +2872,20 @@ def get_starting_xi_weekly_readiness(
         pct_max_hsr = min(100.0, round((ld["hsr_m"] / max_hsr_m) * 100.0, 0))
 
         # Clasificación para el ONCE INICIAL:
-        if mins_played == 0:
+        if mins_played == 0 and acwr_val > 1.35:
+            category = "Riesgo Sobrecarga"
+            xi_badge = "🔴 Precaución / Fatiga Previa"
+            xi_badge_class = "badge-danger"
+            xi_color = "#EF4444"
+            xi_rec = f"Sin minutos en este microciclo pero con fatiga aguda residual acumulada (ACWR {acwr_val:.2f}). Desaconsejada titularidad directa sin adaptación."
+            xi_priority = 1
+            danger_list.append(p.name)
+        elif mins_played == 0:
             category = "Sin Carga"
             xi_badge = "⚪ Sin Carga (0 Min)"
             xi_badge_class = "badge-sub"
             xi_color = "#64748B"
-            xi_rec = "Sin minutos en los últimos 7 días. En fase de readaptación física o baja médica."
+            xi_rec = "Sin minutos en el microciclo semanal. En fase de readaptación física o baja médica."
             xi_priority = 5
             deficit_list.append(p.name)
         elif acwr_val > 1.45 or (hsr_m > 950 and mins_played > 400):
@@ -2860,7 +2893,7 @@ def get_starting_xi_weekly_readiness(
             xi_badge = "🔴 Desaconsejado Inicio (Rotar)"
             xi_badge_class = "badge-danger"
             xi_color = "#EF4444"
-            xi_rec = f"Fatiga crítica acumulada (ACWR {acwr_val:.2f}). Elevado riesgo de lesión o caída física si inicia los 90'. Aconsejable descanso o máx. 25-30' finales."
+            xi_rec = f"Fatiga crítica acumulada (ACWR {acwr_val:.2f} | {td_km:.1f} km acumulados | {hsr_m:.0f}m HSR). Elevado riesgo de lesión o caída física si inicia los 90'. Aconsejable descanso o máx. 25-30' finales."
             xi_priority = 1
             danger_list.append(p.name)
         elif acwr_val > 1.25 or (hsr_m > 750 and mins_played > 340):
@@ -2868,7 +2901,7 @@ def get_starting_xi_weekly_readiness(
             xi_badge = "🟡 Precaución Titular"
             xi_badge_class = "badge-warning"
             xi_color = "#F59E0B"
-            xi_rec = f"Carga semanal en percentil alto (ACWR {acwr_val:.2f} | {hsr_m:.0f}m HSR). Apto para el once, pero programar sustitución preventiva al min 60-70."
+            xi_rec = f"Carga semanal en percentil alto (ACWR {acwr_val:.2f} | {td_km:.1f} km | {hsr_m:.0f}m HSR). Apto para el once, pero programar sustitución preventiva al min 60-70."
             xi_priority = 2
             caution_list.append(p.name)
         elif acwr_val >= 0.80 and mins_played >= 100:
@@ -2876,7 +2909,7 @@ def get_starting_xi_weekly_readiness(
             xi_badge = "🟢 Apto Once Titular"
             xi_badge_class = "badge-opt"
             xi_color = "#10B981"
-            xi_rec = f"Sweet Spot ({acwr_val:.2f}). Carga asimilada y máxima reactividad neuromuscular. Plena disponibilidad física para 90'."
+            xi_rec = f"Sweet Spot ({acwr_val:.2f} | {td_km:.1f} km acumulados). Carga asimilada y máxima reactividad neuromuscular. Plena disponibilidad física para 90'."
             xi_priority = 3
             optimal_list.append(p.name)
         else:
@@ -2884,7 +2917,7 @@ def get_starting_xi_weekly_readiness(
             xi_badge = "⚪ Revulsivo / Déficit"
             xi_badge_class = "badge-sub"
             xi_color = "#94A3B8"
-            xi_rec = f"Bajo volumen semanal ({mins_played:.0f}' acumulados). Fresco muscularmente pero con menor ritmo competitivo. Idóneo como revulsivo de recambio en la 2ª parte."
+            xi_rec = f"Bajo volumen semanal ({mins_played:.0f}' acumulados | {td_km:.1f} km). Fresco muscularmente pero con menor ritmo competitivo. Idóneo como revulsivo de recambio en la 2ª parte."
             xi_priority = 4
             deficit_list.append(p.name)
 
@@ -2921,6 +2954,7 @@ def get_starting_xi_weekly_readiness(
         "session_date": sess_date,
         "start_date": start_date,
         "end_date": sess_date,
+        "microcycle_label": microcycle_label,
         "sessions_count": len(unique_sessions),
         "sessions_list": [f"{s.date.strftime('%d/%m')} ({s.microcycle_day})" for s in unique_sessions],
         "optimal_count": len(optimal_list),
