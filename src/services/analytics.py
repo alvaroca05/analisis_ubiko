@@ -1402,19 +1402,33 @@ def get_match_reference_table_data(
         sess_name_clean = (ref_sess.name or "Partido").replace("Partido fútbol 11' contra ", "").replace("TEMPORADA_", "").replace("_", " ").strip() if ref_sess else "Partido"
 
         # Extraer métricas reales de la sesión de partido seleccionada
+        pm_cls = PlayerMetric
+        if not hasattr(pm_cls, "sprints_count"):
+            try:
+                import importlib
+                import src.database.models as _mod
+                importlib.reload(_mod)
+                pm_cls = _mod.PlayerMetric
+            except Exception:
+                pass
+
+        has_sprints = hasattr(pm_cls, "sprints_count")
+        q_cols = [
+            pm_cls.player_id,
+            pm_cls.minutes_played,
+            pm_cls.total_distance,
+            pm_cls.max_speed,
+            pm_cls.hsr_distance,
+            pm_cls.sprint_distance,
+            pm_cls.accelerations_eff,
+            pm_cls.decelerations_eff
+        ]
+        if has_sprints:
+            q_cols.append(pm_cls.sprints_count)
+
         metrics = (
-            db.query(
-                PlayerMetric.player_id,
-                PlayerMetric.minutes_played,
-                PlayerMetric.total_distance,
-                PlayerMetric.max_speed,
-                PlayerMetric.hsr_distance,
-                PlayerMetric.sprint_distance,
-                PlayerMetric.sprints_count,
-                PlayerMetric.accelerations_eff,
-                PlayerMetric.decelerations_eff
-            )
-            .filter(PlayerMetric.session_id == session_id)
+            db.query(*q_cols)
+            .filter(pm_cls.session_id == session_id)
             .all()
         )
         metrics_by_player = {m.player_id: m for m in metrics}
