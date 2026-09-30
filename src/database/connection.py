@@ -76,7 +76,7 @@ def init_db():
         # 2. Creación de tablas
         Base.metadata.create_all(bind=engine)
 
-        # 3. Migración defensiva de columnas (club_id) en caso de bases de datos existentes
+        # 3. Migración defensiva de columnas (club_id, sprints_count) en caso de bases de datos existentes
         with engine.connect() as conn:
             for table_name in ["players", "training_sessions", "player_metrics", "target_loads"]:
                 try:
@@ -84,6 +84,11 @@ def init_db():
                     conn.commit()
                 except Exception:
                     pass
+            try:
+                conn.execute(text("ALTER TABLE player_metrics ADD COLUMN sprints_count INTEGER DEFAULT 0"))
+                conn.commit()
+            except Exception:
+                pass
 
         print(f"[BASE DE DATOS] Conectado y sincronizado con éxito ({backend_name}).")
     except Exception as e:

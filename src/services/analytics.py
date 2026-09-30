@@ -1410,6 +1410,7 @@ def get_match_reference_table_data(
                 PlayerMetric.max_speed,
                 PlayerMetric.hsr_distance,
                 PlayerMetric.sprint_distance,
+                PlayerMetric.sprints_count,
                 PlayerMetric.accelerations_eff,
                 PlayerMetric.decelerations_eff
             )
@@ -1451,6 +1452,7 @@ def get_match_reference_table_data(
                 acc = int(m.accelerations_eff or 0)
                 dec = int(m.decelerations_eff or 0)
                 raw_sp = float(m.sprint_distance or 0.0)
+                spr_cnt = int(getattr(m, "sprints_count", 0) or 0)
                 sess_type = "Partido"
                 base_source = f"⚽ {sess_name_clean} ({mins:.0f}')"
             else:
@@ -1463,6 +1465,7 @@ def get_match_reference_table_data(
                 acc = 0
                 dec = 0
                 raw_sp = 0.0
+                spr_cnt = 0
                 sess_type = "No convocado"
                 if pk and pk.peak_session_name:
                     pk_clean = pk.peak_session_name.replace("Partido fútbol 11' contra ", "").replace("TEMPORADA_", "").replace("_", " ").strip()
@@ -1471,12 +1474,8 @@ def get_match_reference_table_data(
                 else:
                     base_source = "📋 Perfil Estándar"
 
-            if raw_sp <= 35.0:
-                sprints_cnt = int(raw_sp)
-                sprint_m = round(raw_sp * 18.0, 1)
-            else:
-                sprint_m = round(raw_sp, 1)
-                sprints_cnt = max(1, int(round(raw_sp / 18.0))) if raw_sp > 0 else 0
+            sprint_m = round(raw_sp, 1)
+            sprints_cnt = spr_cnt
 
             # Índice de rendimiento físico ponderado (Score de Exigencia Competitiva)
             if td_m > 0:
@@ -1546,13 +1545,8 @@ def get_match_reference_table_data(
             acc = int(p.peak_acc_eff) if p.peak_acc_eff is not None else 0
             dec = int(p.peak_dec_eff) if p.peak_dec_eff is not None else 0
             raw_sp = float(p.peak_sprint) if p.peak_sprint is not None else 0.0
-
-            if raw_sp <= 35.0:
-                sprints_cnt = int(raw_sp)
-                sprint_m = round(raw_sp * 18.0, 1)
-            else:
-                sprint_m = round(raw_sp, 1)
-                sprints_cnt = max(1, int(round(raw_sp / 18.0))) if raw_sp > 0 else 0
+            sprint_m = round(raw_sp, 1)
+            sprints_cnt = int(p.peak_sprint / 25.0) if (p.peak_sprint and p.peak_sprint >= 25.0) else (1 if raw_sp > 0 else 0)
 
             has_played = td_m > 0.0
             sess_type = p.peak_session_type or ("Partido" if "Partido" in str(p.peak_session_name) else "Entrenamiento")
@@ -1879,8 +1873,7 @@ def calculate_excel_pre_session_prescription(
             if pk and (pk.peak_td or 0) >= 3000.0:
                 p_dist_km = round(float(pk.peak_td or 0.0) / 1000.0, 2)
                 p_hsr_m = float(pk.peak_hsr or 0.0)
-                p_sprint_m = float(pk.peak_sprint or 0.0)
-                p_sprints_cnt = max(1, int(round(p_sprint_m / 18.0))) if p_sprint_m > 0 else 0
+                p_sprints_cnt = int(p_sprint_m / 25.0) if p_sprint_m >= 25.0 else (1 if p_sprint_m > 0 else 0)
                 p_acc = int(pk.peak_acc_eff or 0)
                 p_dec = int(pk.peak_dec_eff or 0)
                 p_vmax = float(pk.peak_max_speed or 31.0)
@@ -2070,12 +2063,8 @@ def get_post_session_multivariable_table(
         real_td_km = round((m.total_distance or 0.0) / 1000.0, 2)
         real_hsr = round(m.hsr_distance or 0.0, 1)
         raw_sp = float(m.sprint_distance or 0.0)
-        if raw_sp <= 35.0:
-            real_sprints = int(raw_sp)
-            real_sprint_m = round(raw_sp * 18.0, 1)
-        else:
-            real_sprint_m = round(raw_sp, 1)
-            real_sprints = max(1, int(round(raw_sp / 18.0))) if raw_sp > 0 else 0
+        real_sprint_m = round(raw_sp, 1)
+        real_sprints = int(getattr(m, "sprints_count", 0) or 0)
 
         real_acc = int(m.accelerations_eff or 0)
         real_dec = int(m.decelerations_eff or 0)
@@ -2280,7 +2269,7 @@ def classify_session_player_states(
         real_td_km = round((m.total_distance or 0.0) / 1000.0, 2)
         real_hsr = round(m.hsr_distance or 0.0, 1)
         raw_sp = float(m.sprint_distance or 0.0)
-        real_sprint_m = round(raw_sp if raw_sp > 35.0 else raw_sp * 18.0, 1)
+        real_sprint_m = round(raw_sp, 1)
         real_acc = int(m.accelerations_eff or 0)
         real_dec = int(m.decelerations_eff or 0)
         minutes = float(m.minutes_played or 0.0)
@@ -2588,7 +2577,7 @@ def get_weekly_microcycle_summary(
             td = float(m.total_distance or 0.0)
             hsr = float(m.hsr_distance or 0.0)
             raw_sp = float(m.sprint_distance or 0.0)
-            sp_m = round(raw_sp * 18.0, 1) if raw_sp <= 35.0 else round(raw_sp, 1)
+            sp_m = round(raw_sp, 1)
             acc_c = int(m.accelerations_eff or 0)
             dec_c = int(m.decelerations_eff or 0)
             mins_c = float(m.minutes_played or 0.0)
@@ -2819,7 +2808,7 @@ def get_starting_xi_weekly_readiness(
             td = float(m.total_distance or 0.0)
             hsr = float(m.hsr_distance or 0.0)
             raw_sp = float(m.sprint_distance or 0.0)
-            sp_m = round(raw_sp * 18.0, 1) if raw_sp <= 35.0 else round(raw_sp, 1)
+            sp_m = round(raw_sp, 1)
             acc_c = int(m.accelerations_eff or 0)
             dec_c = int(m.decelerations_eff or 0)
             mins_c = float(m.minutes_played or 0.0)

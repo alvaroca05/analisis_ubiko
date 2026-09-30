@@ -28,6 +28,7 @@ COLUMN_MAPPINGS = {
     "total_distance": ["total_distance", "distancia_total", "dt", "distance", "distancia_(m)", "distancia"],
     "hsr_distance": ["distancia_hsr", "high_speed_running", "distancia_>_19.8", "distancia_alta_velocidad", "hsr_m", "hsr", "time_vrange5"],
     "sprint_distance": ["distancia_sprint", "distancia_>_25.2", "sprint_distance", "sprint_m", "sprint", "time_vrange6"],
+    "sprints_count": ["sprints", "#_sprints", "#_sprint", "num_sprints", "cant_sprints", "cantidad_sprints", "sprints_cnt", "numero_sprints"],
     "hmld": ["hmld", "high_metabolic_load_distance", "distancia_metabolica", "hmld_(m)"],
     "accelerations_eff": ["num_acc_expl", "aceleraciones", "acc", "acc_eficaces", "acc_>_3m/s2", "accelerations"],
     "decelerations_eff": ["num_dec_expl", "desaceleraciones", "dec", "dec_eficaces", "dec_<_3m/s2", "decelerations"],
@@ -159,7 +160,7 @@ class UbikoImporter:
 
         # Convertir números con coma/punto español a float
         numeric_cols = [
-            "total_distance", "hsr_distance", "sprint_distance", "hmld",
+            "total_distance", "hsr_distance", "sprint_distance", "sprints_count", "hmld",
             "accelerations_eff", "decelerations_eff", "max_speed",
             "player_load", "minutes_played", "rpe"
         ]
@@ -312,6 +313,7 @@ class UbikoImporter:
             total_dist = float(row.get("total_distance", 0.0) or 0.0)
             hsr_dist = float(row.get("hsr_distance", 0.0) or 0.0)
             sprint_dist = float(row.get("sprint_distance", 0.0) or 0.0)
+            sprints_cnt_val = int(row.get("sprints_count", row.get("sprints_cnt", 0)) or 0)
             hmld_val = float(row.get("hmld", 0.0) or (total_dist * 0.18))
             acc_val = int(row.get("accelerations_eff", 0) or 0)
             dec_val = int(row.get("decelerations_eff", 0) or 0)
@@ -337,6 +339,7 @@ class UbikoImporter:
                 total_distance=round(total_dist, 1),
                 hsr_distance=round(hsr_dist, 1),
                 sprint_distance=round(sprint_dist, 1),
+                sprints_count=sprints_cnt_val,
                 hmld=round(hmld_val, 1),
                 accelerations_eff=acc_val,
                 decelerations_eff=dec_val,

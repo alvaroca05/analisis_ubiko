@@ -152,6 +152,7 @@ def scrape_session_report_table(page, report_url: str) -> pd.DataFrame:
                 "hsr_distance": round(hsr_m, 1),
                 "sprint_distance": round(sprint_m, 1),
                 "sprints_cnt": spr_cnt,
+                "sprints_count": spr_cnt,
                 "accelerations_eff": acc,
                 "decelerations_eff": dec,
             })

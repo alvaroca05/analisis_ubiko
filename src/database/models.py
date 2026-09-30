@@ -88,6 +88,7 @@ class PlayerMetric(Base):
     total_distance = Column(Float, default=0.0)      # Metros totales recorridos (DT)
     hsr_distance = Column(Float, default=0.0)        # Distancia en carrera de alta velocidad (>19.8 km/h / >21 km/h) (HSR)
     sprint_distance = Column(Float, default=0.0)     # Distancia al sprint (>25.2 km/h)
+    sprints_count = Column(Integer, default=0)       # Número total de sprints realizados (# Sprints)
     hmld = Column(Float, default=0.0)                # High Metabolic Load Distance (HMLD) en metros
     accelerations_eff = Column(Integer, default=0)   # Aceleraciones eficaces (>3.0 m/s²)
     decelerations_eff = Column(Integer, default=0)   # Desaceleraciones eficaces (<-3.0 m/s²)
