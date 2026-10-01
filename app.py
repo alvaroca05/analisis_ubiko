@@ -19,16 +19,6 @@ BASE_DIR = Path(__file__).resolve().parent
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
-# Recargar modelos y servicios para evitar clases cacheadas obsoletas en Streamlit Cloud tras un deploy
-import importlib
-try:
-    import src.database.models as _models
-    importlib.reload(_models)
-    import src.services.analytics as _analytics
-    importlib.reload(_analytics)
-except Exception:
-    pass
-
 # Configuración de página Streamlit (debe ser el primer comando de Streamlit)
 st.set_page_config(
     page_title="UBIKO Performance & Tactical Hub",
