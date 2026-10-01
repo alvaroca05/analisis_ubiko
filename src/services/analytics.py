@@ -1678,8 +1678,8 @@ def get_match_reference_table_data(
             p for p in players_data
             if p["minutes"] > 0 and p["distance_km"] > 0 and (
                 p["position"] == role or
-                (role == "LATERAL" and p["player_name"].upper() in ["MANU VIANA", "VIANA", "RAFA", "PAJUELO", "TALARN", "A. TALARN", "CONNOR"]) or
-                (role == "EXTREMO" and p["player_name"].upper() in ["CELLOU", "ALAN", "RAFITA"]) or
+                (role == "LATERAL" and p["player_name"].upper() in ["MANU VIANA", "VIANA", "RAFA", "RAFITA", "PAJUELO", "TALARN", "A. TALARN", "CONNOR"]) or
+                (role == "EXTREMO" and p["player_name"].upper() in ["CELLOU", "ALAN"]) or
                 (role == "MEDIOCENTRO" and p["player_name"].upper() in ["LALO", "POLACO", "JUAN MARIA", "PEPELU", "VIRTUDES", "TOPO"]) or
                 (role == "CENTRAL" and p["player_name"].upper() in ["GINÉS", "GINES", "SALVI", "SALVI VERA", "MARCOS PEREZ"]) or
                 (role == "DELANTERO" and p["player_name"].upper() in ["SALVA", "SALVA VEGAS", "LOREN", "BIANCO", "JOSEMI", "SETH VEGA", "MORO"])

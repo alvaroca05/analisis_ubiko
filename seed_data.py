@@ -48,8 +48,8 @@ PLAYERS_DATA = [
     {"name": "Polaco", "dorsal": 14, "position": "Mediocentro", "max_speed": 31.5, "vo2max": 61.5},
     # 15 Viana (Extremo)
     {"name": "Viana", "dorsal": 15, "position": "Extremo", "max_speed": 33.6, "vo2max": 60.5},
-    # 16 Rafita (Extremo)
-    {"name": "Rafita", "dorsal": 16, "position": "Extremo", "max_speed": 33.5, "vo2max": 60.0},
+    # 16 Rafita (Lateral)
+    {"name": "Rafita", "dorsal": 16, "position": "Lateral", "max_speed": 33.5, "vo2max": 60.0},
     # 17 Marcos Perez (Central)
     {"name": "Marcos Perez", "dorsal": 17, "position": "Central", "max_speed": 30.8, "vo2max": 56.0},
     # 18 Victor Julia (Mediocentro)
