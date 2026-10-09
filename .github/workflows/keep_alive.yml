@@ -2,15 +2,19 @@ name: Keep Streamlit App Awake
 
 on:
   schedule:
-    # Se ejecuta todos los días a las 09:00 UTC (11:00 hora española)
-    - cron: '0 9 * * *'
-  workflow_dispatch: # Permite dispararlo manualmente desde la pestaña Actions en GitHub
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
 
 jobs:
   keep_alive:
     runs-on: ubuntu-latest
     steps:
-      - name: Realizar ping a la web de Streamlit
+      - name: Ping Streamlit App
         run: |
-          echo "Haciendo petición a la app para mantenerla activa..."
-          curl -L --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" -s -o /dev/null -w "%{http_code}\n" "https://rendimiento-ubiko.streamlit.app"
+          echo "Pinging Streamlit app..."
+          curl -s -L --max-redirs 5 \
+            -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
+            --cookie-jar /tmp/cookies.txt \
+            --cookie /tmp/cookies.txt \
+            "https://analisis-ubiko.streamlit.app" > /dev/null || true
+          echo "Ping completed successfully.""
