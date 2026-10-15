@@ -616,58 +616,11 @@ def get_cached_player_individual_profile(player_id: int):
 
 
 # ==========================================
-# SEGURIDAD & AUTENTICACIÓN DEL CUERPO TÉCNICO
+# SEGURIDAD & AUTENTICACIÓN DEL CUERPO TÉCNICO (DESACTIVADA TEMPORALMENTE)
 # ==========================================
 def check_authentication() -> bool:
-    """Verifica si el usuario se ha autenticado con la contraseña de seguridad."""
-    if st.session_state.get("authenticated", False):
-        return True
-
-    try:
-        configured_pwd = (
-            st.secrets.get("APP_PASSWORD", "ubiko2026")
-            if hasattr(st, "secrets")
-            else os.environ.get("APP_PASSWORD", "ubiko2026")
-        )
-    except Exception:
-        configured_pwd = os.environ.get("APP_PASSWORD", "ubiko2026")
-
-    col_l1, col_l2, col_l3 = st.columns([1, 1.8, 1])
-    with col_l2:
-        st.write("")
-        st.write("")
-        st.markdown("""
-        <div style="background: #1E293B; border: 1px solid #334155; border-radius: 14px; padding: 28px 24px; text-align: center; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4);">
-            <img src="https://img.icons8.com/color/96/football-ball.png" width="56" style="margin-bottom: 10px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));"/>
-            <h2 style="color: #F8FAFC; margin: 0 0 6px 0; font-size: 1.45rem; font-weight: 700; letter-spacing: -0.02em;">UBIKO Performance Hub</h2>
-            <div style="color: #94A3B8; font-size: 0.84rem; margin-bottom: 16px; line-height: 1.45;">
-                Suite Analítica de Telemetría GPS & Periodización Táctica.<br>
-                <span class="badge-pill optimal" style="margin-top: 6px;">Acceso Confidencial &bull; Cuerpo Técnico</span>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-        st.write("")
-
-        with st.form("login_form", clear_on_submit=False):
-            entered_pwd = st.text_input(
-                "Contraseña de Acceso del Club:",
-                type="password",
-                placeholder="Introduce la clave del cuerpo técnico...",
-                help="Protege la telemetría, prescripciones y datos de los futbolistas frente a accesos no autorizados."
-            )
-            submit_btn = st.form_submit_button("Entrar al Sistema", type="primary", use_container_width=True)
-            if submit_btn:
-                if entered_pwd == configured_pwd:
-                    st.session_state["authenticated"] = True
-                    st.session_state["needs_initial_sync"] = True
-                    st.toast("Acceso concedido al Hub.", icon="⚽")
-                    st.rerun()
-                else:
-                    st.error("Contraseña incorrecta. Acceso restringido por confidencialidad del club.")
-
-        st.caption("Cifrado de datos en tránsito y reposo bajo políticas de club profesional.")
-
-    return False
+    """Acceso directo temporal sin contraseña a petición del usuario."""
+    return True
 
 if not check_authentication():
     st.stop()
