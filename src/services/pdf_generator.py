@@ -6,6 +6,7 @@ Replica fielmente la plantilla manuscrita/Excel de referencia de partidos del pr
 import io
 from typing import List, Dict, Any, Optional
 import pandas as pd
+from reportlab.lib import colors
 
 
 def generate_match_reference_pdf(
@@ -369,6 +370,7 @@ def generate_weekly_microcycle_pdf(summary: Dict[str, Any]) -> bytes:
     """
     import io
     from datetime import date
+    from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.platypus import (
