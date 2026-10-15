@@ -13,6 +13,7 @@ import streamlit as st
 import pandas as pd
 from sqlalchemy.orm import Session
 from typing import Optional, List, Dict, Any, Tuple
+import importlib
 
 # Asegurar la raíz del proyecto en el path de Python (crítico para Streamlit Cloud en Linux)
 BASE_DIR = Path(__file__).resolve().parent
@@ -40,9 +41,6 @@ try:
     )
     from src.database.connection import get_db, init_db
     from src.database.models import Player, TrainingSession, PlayerMetric, TargetLoad, PlayerMatchPeak
-    import src.services.analytics
-    import src.services.report_generator
-    importlib.reload(src.services.report_generator)
     from src.services.analytics import (
         calculate_session_summary,
         calculate_ewma_acwr,
