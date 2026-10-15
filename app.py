@@ -35,13 +35,12 @@ try:
         POSITIONS,
         DATABASE_PATH,
         SAMPLES_DIR,
-        MICROCYCLE_MATCH_TARGETS
+        MICROCYCLE_MATCH_TARGETS,
+        SALERM_PUENTE_GENIL_MATRIX
     )
     from src.database.connection import get_db, init_db
     from src.database.models import Player, TrainingSession, PlayerMetric, TargetLoad, PlayerMatchPeak
-    import importlib
     import src.services.analytics
-    importlib.reload(src.services.analytics)
     import src.services.report_generator
     importlib.reload(src.services.report_generator)
     from src.services.analytics import (
@@ -65,7 +64,8 @@ try:
         classify_session_player_states,
         get_available_microcycles,
         get_weekly_microcycle_summary,
-        get_starting_xi_weekly_readiness
+        get_starting_xi_weekly_readiness,
+        get_player_individual_profile_data
     )
     from src.services.importer import UbikoImporter
     try:
@@ -590,6 +590,14 @@ def get_cached_starting_xi_readiness(session_id: int):
         return get_starting_xi_weekly_readiness(db, session_id)
 
 
+@st.cache_data(ttl=300, show_spinner="Cargando perfil individual del futbolista...")
+def get_cached_player_individual_profile(player_id: int):
+    """Cachea el perfil individual longitudinal y matriz de cumplimiento del jugador."""
+    with get_db() as db:
+        return get_player_individual_profile_data(db, player_id)
+
+
+
 
 
 
@@ -685,6 +693,7 @@ with st.sidebar:
         "Navegación del Sistema",
         [
             "📊 Panel de Sesión & Semáforo",
+            "👤 Perfil Individual del Jugador",
             "🏟️ Referencia Partidos (Excel P.F.)",
             "📋 Planificación & Comparativa (50/70/80%)",
             "📈 Evolución Longitudinal & ACWR",
@@ -1480,6 +1489,282 @@ if menu == "📊 Panel de Sesión & Semáforo":
         )
         fig_z = create_zscore_chart(df_metrics, metric_col=metric_choice[0])
         st.plotly_chart(fig_z, width="stretch")
+
+
+# ==========================================
+# VISTA: PERFIL INDIVIDUAL DEL JUGADOR & EVOLUCIÓN LONGITUDINAL
+# ==========================================
+elif menu == "👤 Perfil Individual del Jugador":
+    st.markdown("""
+    <div style="background: #1E293B; border: 1px solid #334155; border-radius: 12px; padding: 20px 24px; margin-bottom: 20px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);">
+        <div style="color: #38BDF8; font-size: 0.74rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Fisiología y Control Individualizado</div>
+        <h2 style="color: #F8FAFC; margin: 3px 0 6px 0; font-size: 1.45rem; font-weight: 700; letter-spacing: -0.02em;">
+            Perfil Integral del Jugador &amp; Evolución Longitudinal
+        </h2>
+        <div style="color: #94A3B8; font-size: 0.85rem; line-height: 1.5;">
+            Monitoreo sesión a sesión de todas las variables registradas por Ubiko contrastadas con el techo individual del jugador (100%), las demandas posicionales y la matriz oficial de microciclo del Salerm Puente Genil (Mesociclos 1 y 2). Incluye diagnóstico de cumplimiento (Déficit, En Rango, Sobrecarga) y seguimiento longitudinal de 4 semanas.
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    players_data = get_cached_players_list()
+    player_dict = {f"#{dorsal} {name} ({pos})": p_id for p_id, dorsal, name, pos, _ in players_data}
+
+    col_sel1, col_sel2 = st.columns([2, 1])
+    with col_sel1:
+        sel_player_label = st.selectbox("Seleccionar Futbolista:", list(player_dict.keys()), key="indiv_profile_player")
+        sel_player_id = player_dict[sel_player_label]
+
+    profile = get_cached_player_individual_profile(sel_player_id)
+    if not profile:
+        st.warning("No se encontraron registros para este futbolista.")
+        st.stop()
+
+    peak = profile["peak"]
+    acwr = profile["acwr"]
+    pos_bm = profile["position_benchmark"]
+    alerts = profile.get("alerts", [])
+    weeks = profile.get("weeks_summary", [])
+    history = profile.get("sessions_history", [])
+
+    # 1. TARJETAS EJECUTIVAS SUPERIORES (KPIS CLAVE)
+    k1, k2, k3, k4 = st.columns(4)
+    with k1:
+        st.markdown(f"""
+        <div class="metric-card" style="border-left: 4px solid #38BDF8;">
+            <div class="metric-title">Techo Máx. Exigencia (100%)</div>
+            <div class="metric-value">{peak['td_km']} km</div>
+            <div class="metric-subtitle">Récord: {peak['session_name']} ({peak['minutes']:.0f}')</div>
+        </div>
+        """, unsafe_allow_html=True)
+    with k2:
+        st.markdown(f"""
+        <div class="metric-card" style="border-left: 4px solid #818CF8;">
+            <div class="metric-title">Velocidad Máxima / Perfil</div>
+            <div class="metric-value">{peak['vmax']:.2f} km/h</div>
+            <div class="metric-subtitle">Posición: {profile['position']} (HSR máx: {peak['hsr_m']:.0f}m)</div>
+        </div>
+        """, unsafe_allow_html=True)
+    with k3:
+        st.markdown(f"""
+        <div class="metric-card" style="border-left: 4px solid {acwr['color']};">
+            <div class="metric-title">Ratio ACWR Actual (EWMA)</div>
+            <div class="metric-value" style="color: {acwr['color']};">{acwr['val']:.2f}</div>
+            <div class="metric-subtitle">{acwr['status']}</div>
+        </div>
+        """, unsafe_allow_html=True)
+    with k4:
+        st.markdown(f"""
+        <div class="metric-card" style="border-left: 4px solid #F59E0B;">
+            <div class="metric-title">Carga Aguda vs. Crónica</div>
+            <div class="metric-value">{acwr['acute']:.0f} m / {acwr['chronic']:.0f} m</div>
+            <div class="metric-subtitle">Fatiga 7d vs. Fitness base 28d</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.write("")
+
+    # 2. BANNER DE ALERTAS PREVENTIVAS DEL CUERPO TÉCNICO
+    if alerts:
+        st.markdown("##### 🚨 Alertas de Seguimiento de Carga y Precaución:")
+        for al in alerts:
+            al_color = "#EF4444" if al["level"] == "danger" else ("#F59E0B" if al["level"] == "warning" else "#10B981")
+            al_bg = "rgba(239, 68, 68, 0.12)" if al["level"] == "danger" else ("rgba(245, 158, 11, 0.12)" if al["level"] == "warning" else "rgba(16, 185, 129, 0.12)")
+            st.markdown(f"""
+            <div style="background: {al_bg}; border-left: 4px solid {al_color}; padding: 12px 18px; border-radius: 8px; margin-bottom: 10px; font-size: 0.88rem;">
+                <strong style="color: {al_color}; font-size: 0.95rem;">{al['title']}</strong>
+                <div style="color: #E2E8F0; margin-top: 4px;">{al['message']}</div>
+                <div style="color: #94A3B8; margin-top: 4px; font-weight: 500;">
+                    💡 <strong>Acción Recomendada:</strong> {al['recommendation']}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        st.write("")
+
+    # 3. PESTAÑAS DE CONTENIDO ANALÍTICO
+    tab_p1, tab_p2, tab_p3 = st.tabs([
+        "📋 Histórico Sesión a Sesión (Matriz Ubiko)",
+        "📈 Evolución de las Últimas 4 Semanas",
+        "🤖 Dictamen Individual de IA (Cuerpo Técnico)"
+    ])
+
+    # PESTAÑA 1: HISTÓRICO SESIÓN A SESIÓN
+    with tab_p1:
+        st.subheader("Histórico Detallado Sesión a Sesión")
+        st.caption("Todas las métricas registradas por los chalecos GPS de Ubiko contrastadas con el rango planificado del microciclo:")
+
+        col_fil1, col_fil2 = st.columns([1.5, 2.5])
+        with col_fil1:
+            sess_filter = st.selectbox(
+                "Filtrar por tipo de sesión:",
+                ["Todas las sesiones", "Solo Partidos (MD)", "Solo Entrenamientos"],
+                key="indiv_sess_filter"
+            )
+
+        filtered_history = history
+        if sess_filter == "Solo Partidos (MD)":
+            filtered_history = [s for s in history if s["session_type"] == "Partido" or s["microcycle_day"] == "MD"]
+        elif sess_filter == "Solo Entrenamientos":
+            filtered_history = [s for s in history if s["session_type"] != "Partido" and s["microcycle_day"] != "MD"]
+
+        if filtered_history:
+            df_display_sessions = pd.DataFrame([
+                {
+                    "Fecha": s["date_str"],
+                    "Sesión": s["session_name"],
+                    "Día Micro": s["microcycle_day"],
+                    "Tiempo": f"{s['minutes']:.0f}'",
+                    "Distancia (km)": f"{s['distance_km']:.2f}",
+                    "Ritmo (m/min)": f"{s['pace_m_min']:.1f}",
+                    "V. Máx (km/h)": f"{s['max_speed']:.2f}",
+                    "HSR (m)": f"{s['hsr_m']:.0f}",
+                    "Sprint (m)": f"{s['sprint_m']:.0f}",
+                    "#Sprints": s["sprints_cnt"],
+                    "ACC / DCC": f"{s['acc_eff']} / {s['dec_eff']}",
+                    "AC.E Totales": s["total_eff"],
+                    "RPE": f"{s['rpe']:.0f}" if s["rpe"] else "-",
+                    "% Techo DT": f"{s['pct_peak_td']:.0f}%",
+                    "% Techo HSR": f"{s['pct_peak_hsr']:.0f}%",
+                    "Estado Microciclo": s["status_badge"],
+                    "Diagnóstico Fisiológico": s["eval_text"]
+                }
+                for s in filtered_history
+            ])
+
+            st.dataframe(
+                df_display_sessions,
+                hide_index=True,
+                use_container_width=True
+            )
+
+            # Botón de descarga de la tabla del jugador
+            csv_data = df_display_sessions.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                f"📥 Descargar Histórico de {profile['name']} (CSV)",
+                data=csv_data,
+                file_name=f"historico_{profile['name'].lower().replace(' ', '_')}.csv",
+                mime="text/csv",
+                key="btn_download_indiv_csv"
+            )
+        else:
+            st.info("No hay sesiones que coincidan con el filtro seleccionado.")
+
+        st.write("")
+        # Expander de consulta de la Matriz Oficial Salerm Puente Genil
+        with st.expander("📖 Consultar Matriz Oficial de Parámetros Referenciales (Salerm Puente Genil - Mesociclos 1 y 2)"):
+            st.markdown("""
+            Valores objetivo establecidos por el preparador físico para cada día del microciclo competitivo:
+            """)
+            matrix_rows = []
+            for d_k, d_v in SALERM_PUENTE_GENIL_MATRIX.items():
+                matrix_rows.append({
+                    "Día Microciclo": d_v["label"],
+                    "Objetivo / Foco": d_v["objective"],
+                    "Distancia (km)": f"{d_v['dist_km_min']} - {d_v['dist_km_max']} km" if d_v['dist_km_max'] > 0 else "Reset (0)",
+                    "Ritmo (m/min)": f"{d_v['m_min_min']:.0f} - {d_v['m_min_max']:.0f}" if d_v['m_min_max'] > 0 else "-",
+                    "HSR (m)": f"{d_v['hsr_min']:.0f} - {d_v['hsr_max']:.0f} m" if d_v['hsr_max'] > 0 else "-",
+                    "Sprint (m)": f"{d_v['sprint_m_min']:.0f} - {d_v['sprint_m_max']:.0f} m" if d_v['sprint_m_max'] > 0 else "-",
+                    "#Sprints": f"{d_v['sprints_cnt_min']} - {d_v['sprints_cnt_max']}" if d_v['sprints_cnt_max'] > 0 else "-",
+                    "ACC / DCC": f"{d_v['acc_target']} / {d_v['dec_target']}" if d_v['acc_target'] > 0 else "-",
+                    "RPE": f"{d_v['rpe_target']}" if d_v['rpe_target'] > 0 else "-"
+                })
+            st.dataframe(pd.DataFrame(matrix_rows), hide_index=True, use_container_width=True)
+
+    # PESTAÑA 2: EVOLUCIÓN 4 SEMANAS
+    with tab_p2:
+        st.subheader("Dinámica y Acumulación en las Últimas 4 Semanas")
+        st.caption("Control de la carga acumulada semanal para detectar si la fatiga o desentrenamiento vienen de semanas previas:")
+
+        if weeks:
+            df_weeks = pd.DataFrame([
+                {
+                    "Semana": w["label"],
+                    "Periodo": w["range_str"],
+                    "Sesiones": w["sessions_count"],
+                    "Distancia (km)": f"{w['total_distance_km']:.2f}",
+                    "HSR (m)": f"{w['hsr_distance_m']:.0f}",
+                    "Sprint (m)": f"{w['sprint_distance_m']:.0f}",
+                    "#Sprints": w["sprints_cnt"],
+                    "AC.E Totales": w["total_eff"],
+                    "Minutos": f"{w['total_minutes']:.0f}'",
+                    "V. Máx (km/h)": f"{w['max_speed']:.2f}",
+                    "Estado Carga": w["status"]
+                }
+                for w in weeks
+            ])
+            st.dataframe(df_weeks, hide_index=True, use_container_width=True)
+
+            # Gráficos comparativos de las 4 semanas
+            col_g1, col_g2 = st.columns(2)
+            with col_g1:
+                import plotly.graph_objects as go
+                fig_w_td = go.Figure()
+                week_labels = [w["label"].replace("Semana Actual (En Curso)", "Semana Actual") for w in reversed(weeks)]
+                week_tds = [w["total_distance_km"] for w in reversed(weeks)]
+                fig_w_td.add_trace(go.Bar(
+                    x=week_labels,
+                    y=week_tds,
+                    marker_color="#0284C7",
+                    text=[f"{v:.1f} km" for v in week_tds],
+                    textposition="auto"
+                ))
+                fig_w_td.update_layout(
+                    title=f"Volumen Semanal (DT km) - {profile['name']}",
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    font=dict(color="#F8FAFC"),
+                    height=320,
+                    margin=dict(l=20, r=20, t=40, b=20),
+                    yaxis=dict(gridcolor="#334155", title="Distancia Total (km)")
+                )
+                st.plotly_chart(fig_w_td, use_container_width=True)
+
+            with col_g2:
+                fig_w_hsr = go.Figure()
+                week_hsrs = [w["hsr_distance_m"] for w in reversed(weeks)]
+                week_sprints = [w["sprint_distance_m"] for w in reversed(weeks)]
+                fig_w_hsr.add_trace(go.Bar(
+                    name="HSR (>21 km/h)",
+                    x=week_labels,
+                    y=week_hsrs,
+                    marker_color="#F59E0B"
+                ))
+                fig_w_hsr.add_trace(go.Bar(
+                    name="Sprint (>25 km/h)",
+                    x=week_labels,
+                    y=week_sprints,
+                    marker_color="#EF4444"
+                ))
+                fig_w_hsr.update_layout(
+                    title=f"Alta Intensidad Semanal (HSR & Sprint m)",
+                    barmode="group",
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    font=dict(color="#F8FAFC"),
+                    height=320,
+                    margin=dict(l=20, r=20, t=40, b=20),
+                    yaxis=dict(gridcolor="#334155", title="Metros (m)")
+                )
+                st.plotly_chart(fig_w_hsr, use_container_width=True)
+
+    # PESTAÑA 3: DICTAMEN INDIVIDUAL DE IA
+    with tab_p3:
+        st.subheader("Dictamen Fisiológico y Prescripción Individual por IA")
+        st.caption("Informe técnico-táctico generado exclusivamente para este futbolista, sin compararlo con otros jugadores:")
+
+        st.markdown(f"""
+        <div style="background: rgba(30, 41, 59, 0.6); border: 1px solid #334155; padding: 14px 18px; border-radius: 8px; margin-bottom: 16px; font-size: 0.88rem;">
+            Analiza el estado de <strong>#{profile['dorsal']} {profile['name']} ({profile['position']})</strong> considerando sus techos de máxima exigencia, su cumplimiento en el microciclo del Salerm Puente Genil y su histórico de las últimas 4 semanas.
+        </div>
+        """, unsafe_allow_html=True)
+
+        if st.button(f"Generar Dictamen Individual para #{profile['dorsal']} {profile['name']}", type="primary", use_container_width=True, key="btn_gen_indiv_ai"):
+            with st.spinner("Analizando telemetría GPS e infiriendo dictamen con Inteligencia Artificial..."):
+                from src.services.ai_assistant import AIAssistant
+                ai_serv = AIAssistant()
+                with get_db() as db_session:
+                    indiv_report = ai_serv.generate_individual_player_report(sel_player_id, db_session)
+                st.markdown(f'<div class="report-box">{indiv_report}</div>', unsafe_allow_html=True)
 
 
 # ==========================================
@@ -2546,33 +2831,29 @@ elif menu == "🤖 Asistente de IA (Cuerpo Técnico)":
     from src.services.ai_assistant import AIAssistant
     ai_service = AIAssistant()
 
-    tab_ai1, tab_ai2 = st.tabs(["Comparativa Directa de Futbolistas", "Consulta a la Plantilla"])
+    tab_ai1, tab_ai2, tab_ai3 = st.tabs([
+        "📋 Dictamen Individual por Futbolista",
+        "💬 Consultas a la Plantilla (Chat IA)",
+        "⚔️ Comparativa de Dos Jugadores (Opcional)"
+    ])
 
     with tab_ai1:
-        st.subheader("Comparativa Fisiológica y Riesgo Lesional entre Jugadores")
-        st.caption("Contrasta el ratio EWMA ACWR, carga aguda/crónica y medias de alta intensidad para decidir alineaciones o rotaciones.")
+        st.subheader("Dictamen y Prescripción Individual por Futbolista")
+        st.caption("Análisis exclusivo e individualizado para el cuerpo técnico: estado neuromuscular, evolución de 4 semanas y precauciones.")
 
         players_data = get_cached_players_list()
         player_dict = {f"#{dorsal} {name} ({pos})": p_id for p_id, dorsal, name, pos, _ in players_data}
 
-        if len(player_dict) >= 2:
-            col_p1, col_p2 = st.columns(2)
-            player_keys = list(player_dict.keys())
-            with col_p1:
-                sel_p1 = st.selectbox("Selecciona Primer Futbolista:", player_keys, index=0)
-            with col_p2:
-                sel_p2 = st.selectbox("Selecciona Segundo Futbolista:", player_keys, index=1 if len(player_keys) > 1 else 0)
+        col_p1, col_p2 = st.columns([1.8, 1.2])
+        with col_p1:
+            sel_indiv_label = st.selectbox("Selecciona Futbolista a evaluar:", list(player_dict.keys()), key="ai_indiv_player_select")
+            sel_indiv_id = player_dict[sel_indiv_label]
 
-            id_a = player_dict[sel_p1]
-            id_b = player_dict[sel_p2]
-
-            if st.button("Generar Comparativa de Rendimiento", type="primary", use_container_width=True):
-                with st.spinner("Analizando historial de telemetría y generando dictamen técnico..."):
-                    with get_db() as db:
-                        ai_result = ai_service.compare_players(id_a, id_b, db)
-                    st.markdown(f'<div class="report-box">{ai_result}</div>', unsafe_allow_html=True)
-        else:
-            st.info("Se necesitan al menos 2 futbolistas registrados para realizar una comparativa.")
+        if st.button("Generar Dictamen Individual para el Cuerpo Técnico", type="primary", use_container_width=True, key="btn_ai_gen_indiv"):
+            with st.spinner("Analizando telemetría GPS, matriz del microciclo y generando informe individual con IA..."):
+                with get_db() as db:
+                    indiv_report = ai_service.generate_individual_player_report(sel_indiv_id, db)
+                st.markdown(f'<div class="report-box">{indiv_report}</div>', unsafe_allow_html=True)
 
     with tab_ai2:
         st.subheader("Consultas Fisiológicas en Lenguaje Natural")
@@ -2591,6 +2872,33 @@ elif menu == "🤖 Asistente de IA (Cuerpo Técnico)":
                     st.markdown(f'<div class="report-box">{ai_answer}</div>', unsafe_allow_html=True)
             else:
                 st.warning("Por favor, introduce una pregunta antes de consultar.")
+
+    with tab_ai3:
+        st.subheader("Comparativa Opcional entre Dos Futbolistas")
+        st.caption("Contrasta el ratio EWMA ACWR, carga aguda/crónica y medias de alta intensidad entre dos compañeros en pugna posicional.")
+
+        players_data = get_cached_players_list()
+        player_dict = {f"#{dorsal} {name} ({pos})": p_id for p_id, dorsal, name, pos, _ in players_data}
+
+        if len(player_dict) >= 2:
+            col_p1, col_p2 = st.columns(2)
+            player_keys = list(player_dict.keys())
+            with col_p1:
+                sel_p1 = st.selectbox("Selecciona Primer Futbolista:", player_keys, index=0, key="ai_comp_p1")
+            with col_p2:
+                sel_p2 = st.selectbox("Selecciona Segundo Futbolista:", player_keys, index=1 if len(player_keys) > 1 else 0, key="ai_comp_p2")
+
+            id_a = player_dict[sel_p1]
+            id_b = player_dict[sel_p2]
+
+            if st.button("Generar Comparativa de Rendimiento", type="secondary", use_container_width=True, key="btn_ai_gen_comp"):
+                with st.spinner("Analizando telemetría y contrastando ambos perfiles..."):
+                    with get_db() as db:
+                        ai_result = ai_service.compare_players(id_a, id_b, db)
+                    st.markdown(f'<div class="report-box">{ai_result}</div>', unsafe_allow_html=True)
+        else:
+            st.info("Se necesitan al menos 2 futbolistas registrados para realizar una comparativa.")
+
 
 
 # ==========================================

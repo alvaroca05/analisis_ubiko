@@ -262,6 +262,88 @@ Por favor, estructura tu respuesta con:
 """
         return self._call_llm(system_prompt, user_prompt)
 
+    def generate_individual_player_report(self, player_id: int, db: Session) -> str:
+        """
+        Genera un dictamen y análisis individual para el cuerpo técnico enfocado en un futbolista concreto.
+        Sigue la premisa del P.F.: sin comparar a dos jugadores, analizando su evolución sesión a sesión,
+        su carga en las últimas 4 semanas y sus alertas de riesgo (sin interpretarlas como predicciones de lesión).
+        """
+        from src.services.analytics import get_player_individual_profile_data
+        profile = get_player_individual_profile_data(db, player_id)
+        if not profile:
+            return "No se encontraron datos para este futbolista en la base de datos."
+
+        name = profile["name"]
+        dorsal = profile["dorsal"]
+        pos = profile["position"]
+        peak = profile["peak"]
+        acwr = profile["acwr"]
+        alerts = profile.get("alerts", [])
+        weeks = profile.get("weeks_summary", [])
+        recent_sessions = profile.get("sessions_history", [])[:6]
+
+        weeks_lines = []
+        for w in weeks:
+            weeks_lines.append(
+                f"- {w['label']} ({w['range_str']}): {w['total_distance_km']} km | "
+                f"HSR: {w['hsr_distance_m']}m | Sprint: {w['sprint_distance_m']}m ({w['sprints_cnt']} sprints) | "
+                f"AC.E: {w['total_eff']} | Estado: {w['status']}"
+            )
+
+        sess_lines = []
+        for s in recent_sessions:
+            sess_lines.append(
+                f"- {s['date_str']} [{s['microcycle_day']} - {s['session_name']}]: {s['distance_km']} km ({s['minutes']:.0f}') | "
+                f"m/min: {s['pace_m_min']} | HSR: {s['hsr_m']}m | Sprint: {s['sprint_m']}m ({s['sprints_cnt']} spr) | "
+                f"ACC: {s['acc_eff']} | DCC: {s['dec_eff']} | {s['status_badge']}"
+            )
+
+        alert_lines = [f"• [{a['level'].upper()}] {a['title']}: {a['message']} -> {a['recommendation']}" for a in alerts]
+
+        system_prompt = (
+            "Eres el Científico Deportivo y Asistente Técnico de IA del Salerm Puente Genil F.C. "
+            "Tu misión es elaborar un dictamen técnico-táctico individual y profesional sobre el estado físico "
+            "y la dinámica de carga de un futbolista concreto para el preparador físico y el primer entrenador. "
+            "IMPORTANTE: No compares a este futbolista con otros. Analiza su evolución sesión a sesión, "
+            "su acumulación en las últimas 4 semanas y sus alertas de seguimiento, recordando que las métricas GPS "
+            "no predicen lesiones de forma determinista sino que alertan de picos inusuales de carga o subexposiciones. "
+            "Sé conciso, riguroso y aporta recomendaciones prácticas inmediatas."
+        )
+
+        user_prompt = f"""
+INFORME INDIVIDUAL PARA EL CUERPO TÉCNICO: #{dorsal} {name} ({pos})
+Club: Salerm Puente Genil F.C.
+
+1. PERFIL ATLETICO & TECHO DE MÁXIMA EXIGENCIA EN PARTIDO (100%):
+- Distancia Total récord: {peak['td_km']} km ({peak['td_m']:.0f} m)
+- Velocidad máxima registrada: {peak['vmax']} km/h
+- HSR récord (>21 km/h): {peak['hsr_m']} m
+- Sprint récord (>25 km/h): {peak['sprint_m']} m
+- Aceleraciones / Desaceleraciones eficaces récord: {peak['acc_eff']} ACC / {peak['dec_eff']} DCC (Total AC.E: {peak['total_eff']})
+- Partido de referencia: {peak['session_name']}
+
+2. DINÁMICA DE CARGA RECIENTE Y RATIO ACWR (EWMA Williams et al. 2017):
+- Ratio ACWR actual: {acwr['val']:.2f} [{acwr['status']}]
+- Carga Aguda (EWMA 7d): {acwr['acute']:.0f} m | Carga Crónica (EWMA 28d): {acwr['chronic']:.0f} m
+
+3. EVOLUCIÓN LONGITUDINAL EN LAS ÚLTIMAS 4 SEMANAS:
+{chr(10).join(weeks_lines) if weeks_lines else "Sin datos históricos suficientes."}
+
+4. ÚLTIMAS SESIONES DISPUTADAS (Detalle sesión a sesión vs Matriz Salerm Puente Genil):
+{chr(10).join(sess_lines) if sess_lines else "Sin sesiones recientes."}
+
+5. ALERTAS DE SEGUIMIENTO DETECTADAS POR EL SISTEMA:
+{chr(10).join(alert_lines) if alert_lines else "Sin alertas activas."}
+
+Por favor, estructura tu dictamen en las siguientes 4 secciones ejecutivas:
+1. **Estado Físico Actual y Dinámica Semanal:** Resumen de la carga asimilada esta semana y si el jugador está trabajando en rango, déficit o sobrecarga.
+2. **Evolución Longitudinal (Últimas 4 Semanas):** Tendencia de su aptitud física (fitness crónica vs fatiga aguda).
+3. **Puntos de Atención y Alertas de Seguimiento:** Análisis de posibles riesgos por picos de carga o desentrenamiento (especialmente en sprint y HSR).
+4. **Prescripción Práctica para el Próximo Partido / Sesión:** Recomendación directa y accionable para el cuerpo técnico (ej. regular minutos, completar volumen compensatorio, descansos activos).
+"""
+        return self._call_llm(system_prompt, user_prompt)
+
+
     def ask_squad_query(self, question: str, db: Session) -> str:
         """
         Responde a una pregunta en lenguaje natural sobre el estado físico de la plantilla,

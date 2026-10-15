@@ -29,6 +29,7 @@ from src.config import (
     Z_SCORE_NORMAL,
     Z_SCORE_WARNING,
     MICROCYCLE_MATCH_TARGETS,
+    SALERM_PUENTE_GENIL_MATRIX,
 )
 from src.database.models import Player, TrainingSession, PlayerMetric, PlayerMatchPeak, TargetLoad
 
@@ -2946,6 +2947,365 @@ def get_starting_xi_weekly_readiness(
         "deficit_names": deficit_list,
         "players": player_cards
     }
+
+
+def get_player_individual_profile_data(db: Session, player_id: int) -> Dict[str, Any]:
+    """
+    Construye el perfil individual longitudinal completo de un futbolista:
+    1. Identidad y Techo Dinámico de Máxima Exigencia (100% individual en partido oficial).
+    2. Histórico sesión a sesión con todas las variables que registra Ubiko (DT, m/min, Vmax, HSR, Sprint, Sprints#, ACC, DCC, RPE).
+    3. Triple contraste analítico para cada sesión:
+       - vs Techo individual de partido (100%).
+       - vs Matriz Oficial de Objetivos del Salerm Puente Genil (Mesociclos 1 y 2).
+       - vs Promedios de su demarcación táctica.
+    4. Diagnóstico de cumplimiento por sesión:
+       - '🟢 En Rango (Trabaja bien)'
+       - '🟡 Déficit (Se queda corto)'
+       - '🔴 Sobrecarga (Por encima)'
+    5. Evolución acumulada de las últimas 4 semanas y Ratio ACWR EWMA (Agudo:Crónico).
+    6. Alertas de seguimiento individuales para el cuerpo técnico (sin interpretarlas como predicciones deterministas de lesión).
+    """
+    player = db.query(Player).filter(Player.id == player_id).first()
+    if not player:
+        return {}
+
+    # 1. Techo Dinámico de Máxima Exigencia en Partido (100%)
+    peak = db.query(PlayerMatchPeak).filter(PlayerMatchPeak.player_id == player_id).first()
+    if not peak:
+        sync_and_update_player_match_peaks(db, club_id=player.club_id)
+        peak = db.query(PlayerMatchPeak).filter(PlayerMatchPeak.player_id == player_id).first()
+
+    peak_td = float(peak.peak_td) if peak and peak.peak_td else 10500.0
+    peak_hsr = float(peak.peak_hsr) if peak and peak.peak_hsr else 650.0
+    peak_sprint = float(peak.peak_sprint) if peak and peak.peak_sprint else 180.0
+    peak_acc = int(peak.peak_acc_eff) if peak and peak.peak_acc_eff else 45
+    peak_dec = int(peak.peak_dec_eff) if peak and peak.peak_dec_eff else 45
+    peak_eff = peak_acc + peak_dec
+    peak_vmax = float(peak.peak_max_speed) if peak and peak.peak_max_speed else (player.max_speed_kmh or 32.0)
+    peak_sess_name = (peak.peak_session_name or "Competición Oficial").replace("Partido fútbol 11' contra ", "").replace("TEMPORADA_", "").replace("_", " ").strip() if peak else "Competición"
+    peak_mins = float(peak.peak_minutes) if peak and peak.peak_minutes else 90.0
+
+    peak_info = {
+        "td_m": peak_td,
+        "td_km": round(peak_td / 1000.0, 2),
+        "hsr_m": round(peak_hsr, 1),
+        "sprint_m": round(peak_sprint, 1),
+        "acc_eff": peak_acc,
+        "dec_eff": peak_dec,
+        "total_eff": peak_eff,
+        "vmax": round(peak_vmax, 2),
+        "minutes": peak_mins,
+        "session_name": peak_sess_name,
+        "session_date": peak.peak_session_date if peak else None
+    }
+
+    # 2. Promedios posicionales del club para contextualizar
+    pos_players = db.query(Player.id).filter(Player.club_id == player.club_id, Player.position == player.position, Player.active == True).all()
+    pos_player_ids = [p_id for (p_id,) in pos_players] if pos_players else [player_id]
+
+    pos_metrics = (
+        db.query(
+            func.avg(PlayerMetric.total_distance).label("avg_td"),
+            func.avg(PlayerMetric.hsr_distance).label("avg_hsr"),
+            func.avg(PlayerMetric.sprint_distance).label("avg_sprint"),
+            func.avg(PlayerMetric.accelerations_eff).label("avg_acc"),
+            func.avg(PlayerMetric.decelerations_eff).label("avg_dec"),
+            func.max(PlayerMetric.max_speed).label("max_vmax")
+        )
+        .filter(PlayerMetric.player_id.in_(pos_player_ids))
+        .first()
+    )
+    pos_benchmark = {
+        "position": player.position or "Mediocentro",
+        "avg_td_km": round(float(pos_metrics.avg_td or 6500.0) / 1000.0, 2),
+        "avg_hsr_m": round(float(pos_metrics.avg_hsr or 350.0), 1),
+        "avg_sprint_m": round(float(pos_metrics.avg_sprint or 80.0), 1),
+        "avg_acc": round(float(pos_metrics.avg_acc or 40.0), 1),
+        "avg_dec": round(float(pos_metrics.avg_dec or 40.0), 1),
+        "max_vmax": round(float(pos_metrics.max_vmax or 32.5), 2)
+    }
+
+    # 3. Histórico sesión a sesión del futbolista
+    records = (
+        db.query(PlayerMetric, TrainingSession)
+        .join(TrainingSession, PlayerMetric.session_id == TrainingSession.id)
+        .filter(PlayerMetric.player_id == player_id)
+        .order_by(TrainingSession.date.desc(), TrainingSession.id.desc())
+        .all()
+    )
+
+    sessions_history = []
+    for pm, sess in records:
+        mins = float(pm.minutes_played or 0.0)
+        td_m = float(pm.total_distance or 0.0)
+        td_km = round(td_m / 1000.0, 2)
+        pace_m_min = round(td_m / mins, 1) if mins > 0 else 0.0
+        vmax = round(float(pm.max_speed or 0.0), 2)
+        hsr_m = round(float(pm.hsr_distance or 0.0), 1)
+        sprint_m = round(float(pm.sprint_distance or 0.0), 1)
+        sprints_cnt = int(getattr(pm, "sprints_count", 0) or 0)
+        acc = int(pm.accelerations_eff or 0)
+        dec = int(pm.decelerations_eff or 0)
+        eff = acc + dec
+        day_code = (sess.microcycle_day or "MD-3").strip().upper()
+        clean_sess_name = (sess.name or "Sesión").replace("Partido fútbol 11' contra ", "").replace("TEMPORADA_", "").replace("_", " ").strip()
+        matrix_cfg = SALERM_PUENTE_GENIL_MATRIX.get(day_code, SALERM_PUENTE_GENIL_MATRIX.get("MD-3", {}))
+        obj_name = matrix_cfg.get("objective", "ENTRENAMIENTO")
+        rpe_val = float(pm.rpe) if (hasattr(pm, "rpe") and pm.rpe is not None) else matrix_cfg.get("rpe_target")
+
+        # % respecto a su Techo de Máxima Exigencia individual (100%)
+        pct_peak_td = round((td_m / peak_td) * 100.0, 1) if peak_td > 0 else 0.0
+        pct_peak_hsr = round((hsr_m / peak_hsr) * 100.0, 1) if peak_hsr > 0 else 0.0
+        pct_peak_sprint = round((sprint_m / peak_sprint) * 100.0, 1) if peak_sprint > 0 else 0.0
+        pct_peak_eff = round((eff / peak_eff) * 100.0, 1) if peak_eff > 0 else 0.0
+
+        # Evaluación de cumplimiento según los rangos del P.F. para ese día de microciclo
+        d_min = matrix_cfg.get("dist_m_min", 4000.0)
+        d_max = matrix_cfg.get("dist_m_max", 8000.0)
+        hsr_min = matrix_cfg.get("hsr_min", 150.0)
+        hsr_max = matrix_cfg.get("hsr_max", 400.0)
+
+        # Foco específico por día de microciclo:
+        # En MD-4 prima la densidad de ACC/DCC
+        # En MD-3 prima el volumen de HSR y Distancia
+        # En MD-2 prima la velocidad y no sobrepasar volumen
+        # En MD-1 es activación (volumen bajo)
+        # En MD es partido (máxima exigencia)
+        if mins == 0 or td_m == 0:
+            status_badge = "⚪ Sin Minutos"
+            status_code = "no_min"
+            status_color = "#64748B"
+            eval_text = "No disputó minutos en esta sesión."
+        elif day_code == "MD+2":
+            status_badge = "🟢 Reset / Descanso"
+            status_code = "rest"
+            status_color = "#10B981"
+            eval_text = "Día de regeneración pasiva programada."
+        elif day_code == "MD-4":
+            acc_min = matrix_cfg.get("acc_min", 80)
+            dec_min = matrix_cfg.get("dec_min", 70)
+            if acc >= (acc_min * 0.75) and dec >= (dec_min * 0.75):
+                status_badge = "🟢 En Rango (Trabaja bien)"
+                status_code = "optimal"
+                status_color = "#10B981"
+                eval_text = f"Excelente densidad neuromuscular ({eff} esfuerzos eficaces: {acc} ACC / {dec} DCC)."
+            elif acc < (acc_min * 0.75) or dec < (dec_min * 0.75):
+                status_badge = "🟡 Déficit (Se queda corto)"
+                status_code = "deficit"
+                status_color = "#F59E0B"
+                eval_text = f"Déficit en aceleraciones/deceleraciones ({acc} ACC / {dec} DCC vs meta {acc_min}/{dec_min})."
+            else:
+                status_badge = "🟢 En Rango (Trabaja bien)"
+                status_code = "optimal"
+                status_color = "#10B981"
+                eval_text = "Carga ajustada al rango planificado."
+        elif day_code == "MD-3":
+            if hsr_m >= (hsr_min * 0.80) and td_m >= (d_min * 0.80):
+                if hsr_m > (hsr_max * 1.35) or td_m > (d_max * 1.30):
+                    status_badge = "🔴 Sobrecarga (Por encima)"
+                    status_code = "overload"
+                    status_color = "#EF4444"
+                    eval_text = f"Volumen e intensidad excesivos para MD-3 ({td_km} km y {hsr_m}m HSR)."
+                else:
+                    status_badge = "🟢 En Rango (Trabaja bien)"
+                    status_code = "optimal"
+                    status_color = "#10B981"
+                    eval_text = f"Cumplimiento óptimo del foco de espacios amplios ({hsr_m}m HSR, {sprint_m}m sprint)."
+            else:
+                status_badge = "🟡 Déficit (Se queda corto)"
+                status_code = "deficit"
+                status_color = "#F59E0B"
+                eval_text = f"Déficit de HSR o volumen ({hsr_m}m HSR vs meta {hsr_min}-{hsr_max}m)."
+        elif day_code in ["MD-2", "MD-1"]:
+            if td_m > (d_max * 1.30) or hsr_m > (hsr_max * 1.40):
+                status_badge = "🔴 Sobrecarga (Por encima)"
+                status_code = "overload"
+                status_color = "#EF4444"
+                eval_text = f"Sobrecarga en día de frescura ({td_km} km superando el tope de {d_max/1000:.1f} km)."
+            elif td_m >= (d_min * 0.75):
+                status_badge = "🟢 En Rango (Trabaja bien)"
+                status_code = "optimal"
+                status_color = "#10B981"
+                eval_text = "Estímulo controlado respetando la frescura previa a partido."
+            else:
+                status_badge = "🟡 Déficit (Se queda corto)"
+                status_code = "deficit"
+                status_color = "#F59E0B"
+                eval_text = "Exposición menor a la mínima planificada."
+        else:
+            # MD o MD+1
+            if td_m >= (d_min * 0.80):
+                status_badge = "🟢 En Rango (Trabaja bien)"
+                status_code = "optimal"
+                status_color = "#10B981"
+                eval_text = f"Exigencia competitiva alcanzada ({td_km} km)."
+            else:
+                status_badge = "🟡 Déficit (Se queda corto)"
+                status_code = "deficit"
+                status_color = "#F59E0B"
+                eval_text = f"Minutos o distancia reducida ({td_km} km)."
+
+        sessions_history.append({
+            "session_id": sess.id,
+            "date": sess.date,
+            "date_str": sess.date.strftime("%d/%m/%Y"),
+            "session_name": clean_sess_name,
+            "session_type": sess.session_type or "Entrenamiento",
+            "microcycle_day": day_code,
+            "day_label": matrix_cfg.get("label", day_code),
+            "objective": obj_name,
+            "minutes": mins,
+            "total_distance_m": td_m,
+            "distance_km": td_km,
+            "pace_m_min": pace_m_min,
+            "max_speed": vmax,
+            "hsr_m": hsr_m,
+            "sprint_m": sprint_m,
+            "sprints_cnt": sprints_cnt,
+            "acc_eff": acc,
+            "dec_eff": dec,
+            "total_eff": eff,
+            "rpe": rpe_val,
+            "pct_peak_td": pct_peak_td,
+            "pct_peak_hsr": pct_peak_hsr,
+            "pct_peak_sprint": pct_peak_sprint,
+            "pct_peak_eff": pct_peak_eff,
+            "status_badge": status_badge,
+            "status_code": status_code,
+            "status_color": status_color,
+            "eval_text": eval_text,
+            "matrix_targets": matrix_cfg
+        })
+
+    # 4. Análisis de las últimas 4 semanas (Evolución semanal)
+    df_acwr = calculate_ewma_acwr(db, player_id, load_metric="total_distance")
+    if not df_acwr.empty:
+        last_acwr_row = df_acwr.iloc[-1]
+        acute_ewma = float(last_acwr_row.get("acute_ewma", 0.0) or 0.0)
+        chronic_ewma = float(last_acwr_row.get("chronic_ewma", 0.0) or 0.0)
+        acwr_val = float(last_acwr_row.get("acwr", 1.0) or 1.0)
+        acwr_status = str(last_acwr_row.get("acwr_status", "Óptimo"))
+        acwr_color = str(last_acwr_row.get("acwr_color", "#10B981"))
+    else:
+        acute_ewma, chronic_ewma, acwr_val, acwr_status, acwr_color = 0.0, 0.0, 1.0, "Sin datos", "#64748B"
+
+    # Agrupar las sesiones en bloques semanales (últimas 4 semanas)
+    weeks_summary = []
+    if sessions_history:
+        latest_date = max(s["date"] for s in sessions_history)
+        for w_idx in range(4):
+            w_end = latest_date - timedelta(days=w_idx * 7)
+            w_start = w_end - timedelta(days=6)
+            w_sessions = [s for s in sessions_history if w_start <= s["date"] <= w_end]
+
+            w_td_km = sum(s["distance_km"] for s in w_sessions)
+            w_hsr_m = sum(s["hsr_m"] for s in w_sessions)
+            w_sprint_m = sum(s["sprint_m"] for s in w_sessions)
+            w_sprints_cnt = sum(s["sprints_cnt"] for s in w_sessions)
+            w_eff = sum(s["total_eff"] for s in w_sessions)
+            w_mins = sum(s["minutes"] for s in w_sessions)
+            w_vmax = max([s["max_speed"] for s in w_sessions], default=0.0)
+
+            # Clasificación de carga de la semana
+            if w_td_km == 0:
+                w_status = "Sin registros"
+                w_color = "#64748B"
+            elif w_td_km < 18.0 or w_sprint_m < 80.0:
+                w_status = "🟡 Déficit / Infracarga"
+                w_color = "#F59E0B"
+            elif w_td_km > 35.0 or w_sprint_m > 400.0:
+                w_status = "🔴 Sobrecarga / Alta Exigencia"
+                w_color = "#EF4444"
+            else:
+                w_status = "🟢 En Rango Óptimo"
+                w_color = "#10B981"
+
+            label = "Semana Actual (En Curso)" if w_idx == 0 else f"Hace {w_idx} semana{'s' if w_idx > 1 else ''}"
+            weeks_summary.append({
+                "week_index": w_idx,
+                "label": label,
+                "range_str": f"{w_start.strftime('%d/%m')} - {w_end.strftime('%d/%m')}",
+                "sessions_count": len(w_sessions),
+                "total_distance_km": round(w_td_km, 2),
+                "hsr_distance_m": round(w_hsr_m, 1),
+                "sprint_distance_m": round(w_sprint_m, 1),
+                "sprints_cnt": w_sprints_cnt,
+                "total_eff": w_eff,
+                "total_minutes": round(w_mins, 0),
+                "max_speed": w_vmax,
+                "status": w_status,
+                "status_color": w_color
+            })
+
+    # 5. Generar Alertas de Seguimiento Individuales para el Cuerpo Técnico
+    # (Metodología científica: advertencias de carga inusual o subexposición, no predicciones de lesión)
+    alerts = []
+    current_week = weeks_summary[0] if weeks_summary else {}
+    curr_sprint = current_week.get("sprint_distance_m", 0.0)
+    curr_hsr = current_week.get("hsr_distance_m", 0.0)
+    curr_td = current_week.get("total_distance_km", 0.0)
+
+    # A) Alerta de ACWR (Gabbett / Williams)
+    if acwr_val > 1.45:
+        alerts.append({
+            "level": "danger",
+            "title": "Alerta de Pico Agudo de Fatiga (ACWR > 1.45)",
+            "message": f"El ratio agudo:crónico actual es de {acwr_val:.2f}. La carga reciente (7 días) ha crecido de forma desproporcionada sobre su base crónica de 28 días. Riesgo de sobrecarga física.",
+            "recommendation": "Reducir minutos de participación o dosificar intensidades en tareas amplias para permitir asimilación."
+        })
+    elif acwr_val < 0.80 and current_week.get("sessions_count", 0) > 0:
+        alerts.append({
+            "level": "warning",
+            "title": "Alerta de Subexposición / Desentrenamiento (ACWR < 0.80)",
+            "message": f"Ratio agudo:crónico de {acwr_val:.2f}. El jugador está acumulando una carga semanal significativamente menor que su historial habitual.",
+            "recommendation": "Planificar tareas compensatorias post-partido o trabajo complementario a alta velocidad para mantener la aptitud neuromuscular."
+        })
+
+    # B) Alerta de exposición a sprint (>25 km/h)
+    if curr_sprint < 40.0 and current_week.get("sessions_count", 0) >= 3:
+        alerts.append({
+            "level": "warning",
+            "title": "Exposición Insuficiente al Sprint (>25 km/h)",
+            "message": f"Solo registra {curr_sprint:.1f} m de sprint en lo que va de semana a pesar de haber completado {current_week.get('sessions_count', 0)} sesiones.",
+            "recommendation": "Programar 2-3 repeticiones de sprint lineal de 30-40 metros con recuperación completa para mantener el efecto protector sobre los isquiosurales."
+        })
+    elif curr_sprint > 350.0:
+        alerts.append({
+            "level": "danger",
+            "title": "Volumen de Sprint Acumulado Muy Elevado",
+            "message": f"Acumula {curr_sprint:.1f} m de sprint (>25 km/h) en la semana actual. Pico inusualmente alto.",
+            "recommendation": "Evitar tareas de aceleración/velocidad máxima en MD-2 y MD-1 para preservar la musculatura extensora de cadera."
+        })
+
+    # C) Alerta de cumplimiento global
+    if not alerts:
+        alerts.append({
+            "level": "optimal",
+            "title": "Dinámica de Carga Estable y Controlada",
+            "message": f"Ratio ACWR en ventana óptima ({acwr_val:.2f}) con {curr_td:.2f} km y {curr_hsr:.0f} m de HSR en la semana. Sin picos inusuales ni desentrenamiento detectado.",
+            "recommendation": "Apto para participar con normalidad en la planificación del microciclo."
+        })
+
+    return {
+        "player_id": player_id,
+        "name": player.name,
+        "dorsal": player.dorsal,
+        "position": player.position or "Mediocentro",
+        "club_id": player.club_id,
+        "peak": peak_info,
+        "position_benchmark": pos_benchmark,
+        "sessions_history": sessions_history,
+        "weeks_summary": weeks_summary,
+        "acwr": {
+            "val": acwr_val,
+            "status": acwr_status,
+            "color": acwr_color,
+            "acute": acute_ewma,
+            "chronic": chronic_ewma
+        },
+        "alerts": alerts
+    }
+
 
 
 

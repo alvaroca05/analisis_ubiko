@@ -236,3 +236,124 @@ MICROCYCLE_MATCH_TARGETS = {
     }
 }
 
+
+# =============================================================================
+# MATRIZ OFICIAL DE OBJETIVOS GPS MICROCICLO - SALERM PUENTE GENIL F.C.
+# (Parámetros referenciales validados para Mesociclos 1 y 2 por el P.F.)
+# =============================================================================
+SALERM_PUENTE_GENIL_MATRIX = {
+    "MD+1": {
+        "day_name": "Lunes",
+        "label": "MD+1 (Compensatorio)",
+        "objective": "COMPENSATORIO",
+        "foco": "Compensación de carga competitiva para suplentes/no convocados",
+        "dist_km_min": 4.0, "dist_km_max": 6.0,
+        "dist_m_min": 4000.0, "dist_m_max": 6000.0,
+        "m_min_min": 60.0, "m_min_max": 80.0,
+        "hsr_min": 250.0, "hsr_max": 320.0,
+        "sprint_m_min": 100.0, "sprint_m_max": 190.0,
+        "sprints_cnt_min": 8, "sprints_cnt_max": 15,
+        "acc_target": 80, "acc_min": 65, "acc_max": 95,
+        "dec_target": 120, "dec_min": 100, "dec_max": 140,
+        "rpe_target": 8,
+        "badge_color": "#EF4444"
+    },
+    "MD+2": {
+        "day_name": "Martes",
+        "label": "MD+2 (Descanso)",
+        "objective": "RESET / DESCANSO",
+        "foco": "Recuperación pasiva y regeneración biológica",
+        "dist_km_min": 0.0, "dist_km_max": 0.0,
+        "dist_m_min": 0.0, "dist_m_max": 0.0,
+        "m_min_min": 0.0, "m_min_max": 0.0,
+        "hsr_min": 0.0, "hsr_max": 0.0,
+        "sprint_m_min": 0.0, "sprint_m_max": 0.0,
+        "sprints_cnt_min": 0, "sprints_cnt_max": 0,
+        "acc_target": 0, "acc_min": 0, "acc_max": 0,
+        "dec_target": 0, "dec_min": 0, "dec_max": 0,
+        "rpe_target": 0,
+        "badge_color": "#10B981"
+    },
+    "MD-4": {
+        "day_name": "Miércoles",
+        "label": "MD-4 (Tensión y Fuerza)",
+        "objective": "ACC / DCC (TENSIÓN Y FUERZA)",
+        "foco": "Espacios reducidos, alta densidad de aceleraciones y desaceleraciones",
+        "dist_km_min": 5.0, "dist_km_max": 7.0,
+        "dist_m_min": 5000.0, "dist_m_max": 7000.0,
+        "m_min_min": 70.0, "m_min_max": 90.0,
+        "hsr_min": 100.0, "hsr_max": 250.0,
+        "sprint_m_min": 50.0, "sprint_m_max": 70.0,
+        "sprints_cnt_min": 6, "sprints_cnt_max": 8,
+        "acc_target": 90, "acc_min": 80, "acc_max": 100,
+        "dec_target": 95, "dec_min": 70, "dec_max": 120,
+        "rpe_target": 7,
+        "badge_color": "#881337"
+    },
+    "MD-3": {
+        "day_name": "Jueves",
+        "label": "MD-3 (Resistencia y Duración)",
+        "objective": "HSR / SPRINT (ESPACIOS AMPLIOS)",
+        "foco": "Espacios amplios, alta distancia total, máximo HSR y sprint acumulado",
+        "dist_km_min": 8.0, "dist_km_max": 10.0,
+        "dist_m_min": 8000.0, "dist_m_max": 10000.0,
+        "m_min_min": 85.0, "m_min_max": 100.0,
+        "hsr_min": 450.0, "hsr_max": 650.0,
+        "sprint_m_min": 150.0, "sprint_m_max": 250.0,
+        "sprints_cnt_min": 8, "sprints_cnt_max": 15,
+        "acc_target": 85, "acc_min": 70, "acc_max": 100,
+        "dec_target": 95, "dec_min": 80, "dec_max": 110,
+        "rpe_target": 8,
+        "badge_color": "#9A3412"
+    },
+    "MD-2": {
+        "day_name": "Viernes",
+        "label": "MD-2 (Velocidad y Táctica)",
+        "objective": "VELOCIDAD / COHESIÓN / ABP",
+        "foco": "Estimulación neuromuscular pura, velocidad máxima y frescura",
+        "dist_km_min": 3.5, "dist_km_max": 4.0,
+        "dist_m_min": 3500.0, "dist_m_max": 4000.0,
+        "m_min_min": 30.0, "m_min_max": 55.0,
+        "hsr_min": 100.0, "hsr_max": 200.0,
+        "sprint_m_min": 10.0, "sprint_m_max": 30.0,
+        "sprints_cnt_min": 3, "sprints_cnt_max": 6,
+        "acc_target": 40, "acc_min": 30, "acc_max": 50,
+        "dec_target": 35, "dec_min": 25, "dec_max": 45,
+        "rpe_target": 3,
+        "badge_color": "#0284C7"
+    },
+    "MD-1": {
+        "day_name": "Sábado",
+        "label": "MD-1 (Activación y Reactividad)",
+        "objective": "REACCIÓN / EXPLOSIVIDAD",
+        "foco": "Activación, balón parado y frescura neuromuscular previa a competición",
+        "dist_km_min": 2.0, "dist_km_max": 3.0,
+        "dist_m_min": 2000.0, "dist_m_max": 3000.0,
+        "m_min_min": 40.0, "m_min_max": 60.0,
+        "hsr_min": 45.0, "hsr_max": 90.0,
+        "sprint_m_min": 15.0, "sprint_m_max": 40.0,
+        "sprints_cnt_min": 2, "sprints_cnt_max": 4,
+        "acc_target": 22, "acc_min": 15, "acc_max": 30,
+        "dec_target": 17, "dec_min": 10, "dec_max": 25,
+        "rpe_target": 4,
+        "badge_color": "#EAB308"
+    },
+    "MD": {
+        "day_name": "Domingo",
+        "label": "MD (Competición Oficial)",
+        "objective": "MÁXIMA EXIGENCIA",
+        "foco": "Competición oficial de 90+ minutos (100% de referencia de partido)",
+        "dist_km_min": 10.0, "dist_km_max": 14.0,
+        "dist_m_min": 10000.0, "dist_m_max": 14000.0,
+        "m_min_min": 50.0, "m_min_max": 90.0,
+        "hsr_min": 300.0, "hsr_max": 650.0,
+        "sprint_m_min": 100.0, "sprint_m_max": 200.0,
+        "sprints_cnt_min": 8, "sprints_cnt_max": 15,
+        "acc_target": 105, "acc_min": 80, "acc_max": 130,
+        "dec_target": 110, "dec_min": 90, "dec_max": 130,
+        "rpe_target": 10,
+        "badge_color": "#DC2626"
+    }
+}
+
+
