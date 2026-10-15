@@ -723,6 +723,7 @@ with st.sidebar:
     allowed_menus = [
         "📊 Panel de Sesión & Semáforo",
         "👤 Perfil Individual del Jugador",
+        "📑 Informe Semanal & Microciclo (PDF)",
         "🏟️ Referencia Partidos (Excel P.F.)",
         "📋 Planificación & Comparativa (50/70/80%)",
         "📈 Evolución Longitudinal & ACWR",
@@ -1798,6 +1799,280 @@ elif menu == "👤 Perfil Individual del Jugador":
                 with get_db() as db_session:
                     indiv_report = ai_serv.generate_individual_player_report(sel_player_id, db_session)
                 st.markdown(f'<div class="report-box">{indiv_report}</div>', unsafe_allow_html=True)
+
+
+# ==========================================
+# VISTA: INFORME SEMANAL & CUMPLIMIENTO DEL MICROCICLO (PDF)
+# ==========================================
+elif menu == "📑 Informe Semanal & Microciclo (PDF)":
+    st.markdown("""
+    <div style="background: #1E293B; border: 1px solid #334155; border-radius: 12px; padding: 20px 24px; margin-bottom: 20px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);">
+        <div style="color: #38BDF8; font-size: 0.74rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Auditoría de Carga &amp; Periodización</div>
+        <h2 style="color: #F8FAFC; margin: 3px 0 6px 0; font-size: 1.45rem; font-weight: 700; letter-spacing: -0.02em;">
+            Informe Semanal de Rendimiento &amp; Cumplimiento del Microciclo
+        </h2>
+        <div style="color: #94A3B8; font-size: 0.85rem; line-height: 1.5;">
+            Evaluación semanal de la plantilla según el microciclo competitivo (MD-4 a MD+1). Diagnóstico de futbolistas que alcanzan el objetivo, sobrepasan la carga o quedan en déficit, con generación y descarga oficial de informe en formato PDF.
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # 1. Selector de Microciclo Semanal
+    available_microcycles = get_cached_available_microcycles()
+    if not available_microcycles:
+        st.warning("No hay microciclos disponibles en el calendario.")
+        st.stop()
+
+    micro_dict = {m["label"]: m for m in available_microcycles}
+    col_sel1, col_sel2 = st.columns([2.3, 1.7])
+    with col_sel1:
+        sel_micro_label = st.selectbox(
+            "Selecciona el Microciclo Semanal a auditar:",
+            list(micro_dict.keys()),
+            index=0,
+            key="sel_weekly_microcycle"
+        )
+        sel_micro_obj = micro_dict[sel_micro_label]
+        m_start = sel_micro_obj["start_date"]
+        m_end = sel_micro_obj["end_date"]
+
+    summary_data = get_cached_weekly_microcycle_summary(m_start, m_end)
+    team_kpis = summary_data.get("team_kpis", {})
+    breakdown = summary_data.get("sessions_breakdown", [])
+    optimal = summary_data.get("optimal_players", [])
+    deficit = summary_data.get("deficit_players", [])
+    fatigue = summary_data.get("fatigue_alerts", [])
+    all_players = summary_data.get("all_players", [])
+
+    # Botón de Descarga PDF en la cabecera
+    with col_sel2:
+        from src.services.pdf_generator import generate_weekly_microcycle_pdf
+        pdf_bytes = generate_weekly_microcycle_pdf(summary_data)
+        st.write("")
+        st.download_button(
+            label="📄 Descargar Informe Semanal (PDF)",
+            data=pdf_bytes,
+            file_name=f"Informe_Semanal_{m_start.strftime('%d_%m')}_{m_end.strftime('%d_%m_%Y')}.pdf",
+            mime="application/pdf",
+            type="primary",
+            use_container_width=True,
+            help="Genera un documento PDF oficial con la estructura corporativa del Salerm Puente Genil."
+        )
+
+    # 4 Tarjetas KPI del Microciclo
+    r1, r2, r3, r4 = st.columns(4)
+    with r1:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-title">Distancia Media Plantilla</div>
+            <div class="metric-value">{team_kpis.get('team_mean_distance_km', 0.0):.2f} km</div>
+            <div class="metric-subtitle">Carga acumulada en la semana</div>
+        </div>
+        """, unsafe_allow_html=True)
+    with r2:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-title">HSR Medio (>21 km/h)</div>
+            <div class="metric-value" style="color: #38BDF8;">{team_kpis.get('team_mean_hsr_m', 0.0):.0f} m</div>
+            <div class="metric-subtitle">Exposición a alta velocidad</div>
+        </div>
+        """, unsafe_allow_html=True)
+    with r3:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-title">Carga Neuromuscular</div>
+            <div class="metric-value" style="color: #F59E0B;">{team_kpis.get('team_mean_eff', 0)} AC.E</div>
+            <div class="metric-subtitle">Aceleraciones + Deceleraciones</div>
+        </div>
+        """, unsafe_allow_html=True)
+    with r4:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-title">Sesiones Monitorizadas</div>
+            <div class="metric-value">{team_kpis.get('num_sessions', 0)}</div>
+            <div class="metric-subtitle">{team_kpis.get('total_team_duration', 0)} minutos totales</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.write("")
+
+    # Pestañas de análisis
+    tab_w1, tab_w2, tab_w3, tab_w4 = st.tabs([
+        "📋 Control de Cumplimiento (Plantilla)",
+        "🎯 Desglose por Estados (Óptimo / Déficit / Sobrecarga)",
+        "📅 Sesiones Computadas en el Microciclo",
+        "🖨️ Vista Previa Formato Imprimible"
+    ])
+
+    with tab_w1:
+        st.subheader("Control Individual de Cumplimiento de la Plantilla")
+        st.caption("Contraste de cada futbolista respecto a las demandas prescritas para el microciclo del Salerm Puente Genil.")
+
+        # Construir tabla consolidada
+        player_dict = {}
+        for p in all_players:
+            player_dict[p["player_id"]] = dict(p)
+        for p in optimal:
+            if p["player_id"] not in player_dict:
+                player_dict[p["player_id"]] = dict(p)
+            player_dict[p["player_id"]]["status_group"] = "OPTIMO"
+        for p in deficit:
+            if p["player_id"] not in player_dict:
+                player_dict[p["player_id"]] = dict(p)
+            player_dict[p["player_id"]]["status_group"] = "DEFICIT"
+        for p in fatigue:
+            if p["player_id"] not in player_dict:
+                player_dict[p["player_id"]] = dict(p)
+            player_dict[p["player_id"]]["status_group"] = "SOBRECARGA"
+
+        rows_table = []
+        for p in sorted(player_dict.values(), key=lambda x: int(x.get("dorsal", 99))):
+            st_g = p.get("status_group", "")
+            acwr_val = p.get("acwr")
+            if not st_g:
+                if acwr_val is not None and acwr_val > 1.35:
+                    st_g = "SOBRECARGA"
+                elif p.get("tot_mins", 0) < 120:
+                    st_g = "DEFICIT"
+                else:
+                    st_g = "OPTIMO"
+
+            if st_g == "SOBRECARGA":
+                badge_lbl = "🔴 Sobrecarga"
+                diag = p.get("alert_reasons", "Fatiga acumulada alta")
+            elif st_g == "DEFICIT":
+                badge_lbl = "🟡 Déficit"
+                diag = p.get("deficit_reasons", "Subexposición semanal")
+            else:
+                badge_lbl = "🟢 En Objetivo"
+                diag = p.get("optimal_note", "Rango de microciclo óptimo")
+
+            rows_table.append({
+                "Dorsal": int(p.get("dorsal", 0)),
+                "Futbolista": p.get("name", ""),
+                "Posición": p.get("position", ""),
+                "Minutos": f"{p.get('tot_mins', 0):.0f}'",
+                "Sesiones": p.get("sessions_count", 0),
+                "Distancia (km)": f"{p.get('tot_km', 0.0):.1f} km",
+                "HSR (>21 km/h)": f"{p.get('tot_hsr', 0.0):.0f} m",
+                "Carga Neuromuscular (AC.E)": p.get("tot_eff", 0),
+                "ACWR (EWMA)": f"{acwr_val:.2f}" if acwr_val is not None else "N/D",
+                "Cumplimiento": badge_lbl,
+                "Diagnóstico": diag
+            })
+
+        if rows_table:
+            df_compliance = pd.DataFrame(rows_table)
+            st.dataframe(df_compliance, width="stretch", hide_index=True)
+        else:
+            st.info("No hay datos de jugadores registrados en el microciclo seleccionado.")
+
+    with tab_w2:
+        st.subheader("Desglose Clínico y Táctico por Grupos Operativos")
+        col_g1, col_g2, col_g3 = st.columns(3)
+
+        with col_g1:
+            st.markdown(f"#### 🟢 En Objetivo ({len(optimal)})")
+            st.caption("Futbolistas que completaron el microciclo en zona óptima de estímulo (ACWR 0.80 - 1.30).")
+            if optimal:
+                for p in optimal:
+                    st.markdown(f"""
+                    <div style="background: #1E293B; border-left: 4px solid #10B981; border-radius: 8px; padding: 12px 14px; margin-bottom: 10px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <strong style="color: #F8FAFC;">#{p['dorsal']} {p['name']}</strong>
+                            <span class="badge badge-optimal">ACWR: {p['acwr']:.2f}</span>
+                        </div>
+                        <div style="font-size: 0.78rem; color: #94A3B8; margin-top: 4px;">
+                            {p['position']} &bull; {p['tot_km']:.1f} km &bull; {p['tot_hsr']:.0f}m HSR &bull; {p['tot_eff']} AC.E
+                        </div>
+                        <div style="font-size: 0.76rem; color: #34D399; margin-top: 5px;">
+                            ✓ {p.get('optimal_note', 'Apto con normalidad')}
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+            else:
+                st.info("Sin futbolistas en este rango.")
+
+        with col_g2:
+            st.markdown(f"#### 🟡 En Déficit ({len(deficit)})")
+            st.caption("Jugadores con baja exposición o minutos insuficientes. Requieren plan compensatorio.")
+            if deficit:
+                for p in deficit:
+                    acwr_str = f"ACWR: {p['acwr']:.2f}" if p['acwr'] is not None else "Sin ACWR"
+                    st.markdown(f"""
+                    <div style="background: #1E293B; border-left: 4px solid #F59E0B; border-radius: 8px; padding: 12px 14px; margin-bottom: 10px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <strong style="color: #F8FAFC;">#{p['dorsal']} {p['name']}</strong>
+                            <span class="badge badge-warning">{acwr_str}</span>
+                        </div>
+                        <div style="font-size: 0.78rem; color: #94A3B8; margin-top: 4px;">
+                            {p['position']} &bull; {p['tot_km']:.1f} km &bull; {p['tot_hsr']:.0f}m HSR
+                        </div>
+                        <div style="font-size: 0.76rem; color: #FBBF24; margin-top: 5px;">
+                            <strong>Déficit:</strong> {p.get('deficit_reasons', 'Baja carga')}
+                        </div>
+                        <div style="font-size: 0.76rem; color: #38BDF8; margin-top: 3px;">
+                            <strong>Propuesta:</strong> {p.get('compensatory_plan', 'Compensatorio recomendado')}
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+            else:
+                st.info("Ningún futbolista en déficit.")
+
+        with col_g3:
+            st.markdown(f"#### 🔴 Alerta de Sobrecarga ({len(fatigue)})")
+            st.caption("Futbolistas con picos agudos de fatiga o ACWR crítico (>1.35). Directrices para el Míster.")
+            if fatigue:
+                for p in fatigue:
+                    acwr_str = f"ACWR: {p['acwr']:.2f}" if p['acwr'] is not None else "Alerta"
+                    st.markdown(f"""
+                    <div style="background: #1E293B; border-left: 4px solid #EF4444; border-radius: 8px; padding: 12px 14px; margin-bottom: 10px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <strong style="color: #F87171;">⚠️ #{p['dorsal']} {p['name']}</strong>
+                            <span class="badge badge-danger">{acwr_str}</span>
+                        </div>
+                        <div style="font-size: 0.78rem; color: #94A3B8; margin-top: 4px;">
+                            {p['position']} &bull; {p['tot_km']:.1f} km &bull; {p['tot_eff']} AC.E
+                        </div>
+                        <div style="font-size: 0.76rem; color: #F87171; margin-top: 5px;">
+                            <strong>Alerta:</strong> {p.get('alert_reasons', 'Riesgo sobrecarga')}
+                        </div>
+                        <div style="font-size: 0.76rem; color: #FCA5A5; margin-top: 3px;">
+                            <strong>Recomendación:</strong> {p.get('recommendation', 'Dosificar minutos')}
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+            else:
+                st.info("Plantilla sin alertas críticas de sobrecarga.")
+
+    with tab_w3:
+        st.subheader("Desglose Diario de Sesiones del Microciclo")
+        st.caption("Sesiones computadas durante el periodo con su foco táctico y medias físicas del grupo.")
+        if breakdown:
+            s_rows = []
+            for s in breakdown:
+                s_rows.append({
+                    "Fecha": s["date"].strftime("%d/%m/%Y") if hasattr(s["date"], "strftime") else str(s["date"]),
+                    "Microciclo": s.get("microcycle_day", ""),
+                    "Tipo": s.get("session_type", ""),
+                    "Duración": f"{s.get('duration', 0)} min",
+                    "Jugadores": s.get("players_count", 0),
+                    "Distancia Media (km)": f"{s.get('mean_td_km', 0.0):.2f} km",
+                    "HSR Medio (m)": f"{s.get('mean_hsr_m', 0.0):.0f} m",
+                    "AC.E Medio": f"{s.get('mean_eff', 0):.0f}",
+                    "Estímulo Principal / Foco": s.get("stimulus", "")
+                })
+            st.dataframe(pd.DataFrame(s_rows), width="stretch", hide_index=True)
+        else:
+            st.info("No se han registrado sesiones en este microciclo.")
+
+    with tab_w4:
+        st.subheader("Vista Previa del Informe Imprimible (HTML)")
+        st.caption("Maquetación idéntica al documento oficial. Puedes revisarla o imprimirla directamente.")
+        from src.services.report_generator import generate_weekly_coach_html_report
+        html_report = generate_weekly_coach_html_report(summary_data)
+        import streamlit.components.v1 as components
+        components.html(html_report, height=750, scrolling=True)
 
 
 # ==========================================
