@@ -643,6 +643,7 @@ def check_authentication() -> bool:
             if submit_btn:
                 if entered_pwd == configured_pwd:
                     st.session_state["authenticated"] = True
+                    st.session_state["needs_initial_sync"] = True
                     st.toast("Acceso concedido al Hub.", icon="⚽")
                     st.rerun()
                 else:
@@ -654,6 +655,81 @@ def check_authentication() -> bool:
 
 if not check_authentication():
     st.stop()
+
+
+# ==========================================
+# PANTALLA DE ESPERA & SINCRONIZACIÓN AUTOMÁTICA AL INICIAR SESIÓN
+# ==========================================
+def handle_initial_login_sync():
+    """
+    Muestra la pantalla de espera y ejecuta la sincronización automática
+    con UBIKO Web justo tras introducir la contraseña.
+    """
+    if not st.session_state.get("needs_initial_sync", False):
+        return
+
+    col_c1, col_c2, col_c3 = st.columns([1, 2.2, 1])
+    with col_c2:
+        st.write("")
+        st.write("")
+        st.markdown("""
+        <style>
+        @keyframes pulse-glow {
+            0% { transform: scale(0.97); opacity: 0.85; filter: drop-shadow(0 0 10px rgba(56, 189, 248, 0.4)); }
+            50% { transform: scale(1.03); opacity: 1; filter: drop-shadow(0 0 25px rgba(56, 189, 248, 0.8)); }
+            100% { transform: scale(0.97); opacity: 0.85; filter: drop-shadow(0 0 10px rgba(56, 189, 248, 0.4)); }
+        }
+        .loading-logo {
+            animation: pulse-glow 2.2s infinite ease-in-out;
+            margin-bottom: 18px;
+        }
+        </style>
+        <div style="background: #1E293B; border: 1px solid #334155; border-radius: 16px; padding: 36px 28px; text-align: center; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);">
+            <img class="loading-logo" src="https://img.icons8.com/color/96/football-ball.png" width="68"/>
+            <div style="color: #38BDF8; font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px;">
+                Conexión UBIKO Telemetry Cloud
+            </div>
+            <h2 style="color: #F8FAFC; margin: 0 0 10px 0; font-size: 1.55rem; font-weight: 700; letter-spacing: -0.02em;">
+                Cargando y actualizando sesiones...
+            </h2>
+            <div style="color: #94A3B8; font-size: 0.88rem; line-height: 1.55; margin-bottom: 20px;">
+                Conectando con la plataforma oficial de UBIKO Web para verificar y descargar la telemetría más reciente de los chalecos GPS, procesar métricas y sincronizar la base de datos de Salerm Puente Genil.
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        st.write("")
+
+        col_skip1, col_skip2, col_skip3 = st.columns([1, 2, 1])
+        with col_skip2:
+            if st.button("⚡ Omitir y entrar directamente", use_container_width=True, help="Entra de inmediato utilizando los datos ya guardados en Supabase."):
+                st.session_state["needs_initial_sync"] = False
+                st.rerun()
+
+        with st.spinner("Sincronizando sesiones de UBIKO Web en tiempo real..."):
+            try:
+                import importlib
+                import ubiko_sync
+                importlib.reload(ubiko_sync)
+                res_sync = ubiko_sync.sync_latest_session(headless=True, min_date=date(2026, 9, 3))
+                st.cache_data.clear()
+                is_ok = res_sync.get("success", False)
+                synced_count = res_sync.get("synced_count", 0)
+
+                if is_ok and synced_count > 0:
+                    st.success(f"¡{synced_count} nueva(s) sesión(es) incorporada(s) con éxito!")
+                else:
+                    st.info("Base de datos al día. Todas las sesiones están sincronizadas.")
+                time.sleep(1.2)
+            except Exception as ex:
+                st.warning(f"Aviso durante la sincronización: {ex}. Continuando con la base de datos...")
+                time.sleep(1.0)
+
+        st.session_state["needs_initial_sync"] = False
+        st.rerun()
+
+    st.stop()
+
+handle_initial_login_sync()
 
 
 # ==========================================
@@ -774,6 +850,7 @@ with st.sidebar:
     st.divider()
     if st.button("Cerrar Sesión", use_container_width=True, help="Bloquea el portal y cierra la sesión del cuerpo técnico."):
         st.session_state["authenticated"] = False
+        st.session_state["needs_initial_sync"] = True
         st.rerun()
 
 
