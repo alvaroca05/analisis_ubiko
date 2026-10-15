@@ -387,26 +387,26 @@ class UbikoSyncService:
         try:
             # 1. Navegar a UBIKO
             print(f"[UBIKO] Accediendo a: {self.base_url}")
-            page.goto(self.base_url, wait_until="domcontentloaded", timeout=20000)
-            time.sleep(2)
+            page.goto(self.base_url, wait_until="domcontentloaded", timeout=15000)
+            time.sleep(0.5)
 
             # 2. Login automático si se presentan campos de login
             is_login_page = "login" in page.url.lower() or "signin" in page.url.lower() or bool(page.query_selector('input[type="password"]'))
             if is_login_page:
                 print(f"[UBIKO] Formulario de inicio de sesión detectado en: {page.url}")
                 if UBIKO_USER and UBIKO_PASSWORD:
-                    user_input = page.wait_for_selector('input[type="text"], input[type="email"], input[name*="user"], input[name*="email"]', timeout=8000)
-                    pass_input = page.wait_for_selector('input[type="password"]', timeout=8000)
+                    user_input = page.wait_for_selector('input[type="text"], input[type="email"], input[name*="user"], input[name*="email"]', timeout=6000)
+                    pass_input = page.wait_for_selector('input[type="password"]', timeout=6000)
                     if user_input and pass_input:
                         print(f"[UBIKO] Introduciendo credenciales para: {UBIKO_USER}")
                         try:
                             user_input.fill("")
-                            user_input.press_sequentially(UBIKO_USER, delay=15)
+                            user_input.press_sequentially(UBIKO_USER, delay=10)
                             user_input.evaluate("el => el.dispatchEvent(new Event('input', { bubbles: true }))")
                             user_input.evaluate("el => el.dispatchEvent(new Event('change', { bubbles: true }))")
 
                             pass_input.fill("")
-                            pass_input.press_sequentially(UBIKO_PASSWORD, delay=15)
+                            pass_input.press_sequentially(UBIKO_PASSWORD, delay=10)
                             pass_input.evaluate("el => el.dispatchEvent(new Event('input', { bubbles: true }))")
                             pass_input.evaluate("el => el.dispatchEvent(new Event('change', { bubbles: true }))")
                         except Exception:
@@ -418,10 +418,10 @@ class UbikoSyncService:
                             submit_btn.click()
                             print("[UBIKO] Credenciales enviadas, esperando autenticación...")
                             try:
-                                page.wait_for_url(lambda u: "login" not in u.lower(), timeout=12000)
+                                page.wait_for_url(lambda u: "login" not in u.lower(), timeout=10000)
                             except Exception:
                                 pass
-                            time.sleep(2)
+                            time.sleep(0.5)
                 else:
                     return {
                         "success": False,
@@ -434,10 +434,10 @@ class UbikoSyncService:
             # Si aparece selector de club o equipo (por ejemplo tras login limpio)
             try:
                 puente_genil = page.locator('text="Puente Genil", text="PUENTE GENIL", [title*="Puente Genil" i]').first
-                if puente_genil.is_visible(timeout=3000):
+                if puente_genil.is_visible(timeout=2000):
                     print("[UBIKO] Selector de equipo detectado. Seleccionando Puente Genil F.C...")
                     puente_genil.click()
-                    time.sleep(2)
+                    time.sleep(0.5)
             except Exception:
                 pass
 
@@ -454,14 +454,14 @@ class UbikoSyncService:
             if "team/sessions" not in page.url.lower():
                 print(f"[UBIKO] Navegando a la sección de sesiones del equipo: {target_sessions_url}")
                 try:
-                    page.goto(target_sessions_url, wait_until="domcontentloaded", timeout=15000)
-                    time.sleep(2)
+                    page.goto(target_sessions_url, wait_until="domcontentloaded", timeout=12000)
+                    time.sleep(0.5)
                 except Exception as e_nav:
                     print(f"[UBIKO] Error navegando directamente ({e_nav}), intentando clic en menú 'Sesiones'...")
                     try:
                         sesiones_nav = page.locator("nav, header, .navbar, .menu, body").get_by_text("Sesiones", exact=False).first
                         sesiones_nav.click()
-                        time.sleep(2)
+                        time.sleep(0.5)
                     except Exception:
                         pass
 
@@ -469,10 +469,10 @@ class UbikoSyncService:
             print(f"[UBIKO] Página activa de sesiones: {page.url}")
             print("[UBIKO] Esperando a que carguen las sesiones realizadas...")
             try:
-                page.wait_for_selector("table tbody tr", timeout=25000)
+                page.wait_for_selector("table tbody tr", timeout=20000)
             except Exception:
                 try:
-                    page.locator("text=Sesiones").first.wait_for(timeout=10000)
+                    page.locator("text=Sesiones").first.wait_for(timeout=8000)
                 except Exception as e_wait:
                     if "login" in page.url.lower():
                         return {
@@ -493,7 +493,7 @@ class UbikoSyncService:
                 "message": f"Error conectando a UBIKO Web: {e_flow}"
             }
 
-        time.sleep(1.5)
+        time.sleep(0.5)
 
         # 5. Inspeccionar filas de sesiones
         import re
@@ -505,11 +505,21 @@ class UbikoSyncService:
             page.screenshot(path=str(debug_shot))
             return {"success": False, "status": "no_data", "message": f"No se encontraron filas de sesiones en UBIKO. Captura: {debug_shot.name}"}
 
-        # Filtrar sesiones a procesar (desde min_date o 03/09/2026 en adelante)
-        min_sync_date = min_date if min_date is not None else date(2026, 9, 3)
+        # Filtrar sesiones a procesar: incremental inteligente por defecto para máxima velocidad (15-25s)
+        if min_date is not None:
+            min_sync_date = min_date
+        else:
+            latest = self.get_latest_db_session()
+            if latest and latest.get("date"):
+                from datetime import timedelta
+                min_sync_date = latest["date"] - timedelta(days=2)
+            else:
+                min_sync_date = date(2026, 9, 3)
+
         print(f"[UBIKO] Analizando sesiones disponibles (filtrando desde {min_sync_date.strftime('%d/%m/%Y')} en adelante)...")
 
         sessions_to_process = []
+        consecutive_old = 0
         for idx, row in enumerate(rows):
             row_text = row.inner_text().strip()
             cells = row.locator("td, mat-cell, div[role='cell']").all()
@@ -540,7 +550,14 @@ class UbikoSyncService:
 
             # Filtrar solo sesiones a partir de la fecha objetivo
             if parsed_date < min_sync_date:
+                consecutive_old += 1
+                # Como UBIKO ordena las sesiones de más reciente a más antigua, al detectar 2 sesiones anteriores detenemos el escaneo
+                if consecutive_old >= 2:
+                    print(f"[UBIKO] Alcanzado límite de fecha ({min_sync_date.strftime('%d/%m/%Y')}). Deteniendo análisis de filas históricas.")
+                    break
                 continue
+            else:
+                consecutive_old = 0
 
             print(f"[UBIKO] -> Sesión detectada: '{session_name}' ({parsed_date.strftime('%d/%m/%Y')}) | Estado: {raw_status}")
 
@@ -571,7 +588,7 @@ class UbikoSyncService:
             return {
                 "success": True,
                 "status": "up_to_date",
-                "message": f"No hay sesiones en UBIKO con fecha igual o posterior al {min_sync_date.strftime('%d/%m/%Y')}."
+                "message": f"No hay sesiones nuevas en UBIKO (filtrado desde {min_sync_date.strftime('%d/%m/%Y')})."
             }
 
         synced_sessions = []
@@ -591,7 +608,7 @@ class UbikoSyncService:
                 print(f"[UBIKO] Saltando '{s_name}' porque todavía se está computando.")
                 continue
 
-            # Comprobar si ya existe en la base de datos SQLite
+            # Comprobar si ya existe en la base de datos
             with get_db() as db:
                 existing = db.query(TrainingSession).filter(
                     TrainingSession.name == s_name,
@@ -599,14 +616,7 @@ class UbikoSyncService:
                 ).first()
 
             if existing and not force:
-                print(f"[UBIKO] La sesión '{s_name}' ya está en la base de datos. Generando resumen...")
-                with get_db() as db:
-                    summ = calculate_session_summary(db, existing.id)
-                    try:
-                        rep = generate_tactical_report(summ)
-                    except Exception as e_rep:
-                        rep = f"Informe pendiente de computar: {e_rep}"
-                    reports.append(rep)
+                print(f"[UBIKO] La sesión '{s_name}' ya está sincronizada en la base de datos.")
                 synced_sessions.append({"id": existing.id, "name": s_name, "date": s_date, "status": "already_synced"})
                 continue
 

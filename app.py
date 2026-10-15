@@ -705,12 +705,13 @@ def handle_initial_login_sync():
                 st.session_state["needs_initial_sync"] = False
                 st.rerun()
 
-        with st.spinner("Sincronizando sesiones de UBIKO Web en tiempo real..."):
+        with st.spinner("Sincronizando últimas sesiones de UBIKO Web en tiempo real (15-25s)..."):
             try:
                 import importlib
                 import ubiko_sync
                 importlib.reload(ubiko_sync)
-                res_sync = ubiko_sync.sync_latest_session(headless=True, min_date=date(2026, 9, 3))
+                # min_date=None activa el barrido incremental inteligente (últimos 2 días desde la última sesión)
+                res_sync = ubiko_sync.sync_latest_session(headless=True, min_date=None)
                 st.cache_data.clear()
                 is_ok = res_sync.get("success", False)
                 synced_count = res_sync.get("synced_count", 0)
@@ -719,10 +720,10 @@ def handle_initial_login_sync():
                     st.success(f"¡{synced_count} nueva(s) sesión(es) incorporada(s) con éxito!")
                 else:
                     st.info("Base de datos al día. Todas las sesiones están sincronizadas.")
-                time.sleep(1.2)
+                time.sleep(0.6)
             except Exception as ex:
                 st.warning(f"Aviso durante la sincronización: {ex}. Continuando con la base de datos...")
-                time.sleep(1.0)
+                time.sleep(0.5)
 
         st.session_state["needs_initial_sync"] = False
         st.rerun()
