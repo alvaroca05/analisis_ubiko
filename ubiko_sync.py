@@ -731,10 +731,10 @@ class UbikoSyncService:
 
             # Ingesta en Supabase (PostgreSQL Nube)
             with get_db() as db:
-                # Asegurar porteros oficiales (Estepa #1, Luengo #13)
-                db.query(Player).filter(Player.dorsal.in_([1, 13])).update({"position": "Portero"}, synchronize_session=False)
                 # Pajuelo #25 es Lateral
                 db.query(Player).filter(Player.dorsal == 25).update({"position": "Lateral"}, synchronize_session=False)
+                # Asegurar que no existan registros de porteros (sin GPS)
+                db.query(Player).filter(Player.name.in_(["Estepa", "Luengo"])).delete(synchronize_session=False)
                 db.commit()
 
                 if force:

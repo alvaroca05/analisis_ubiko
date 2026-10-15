@@ -20,8 +20,6 @@ random.seed(42)
 np.random.seed(42)
 
 PLAYERS_DATA = [
-    # 1 Estepa (Portero)
-    {"name": "Estepa", "dorsal": 1, "position": "Portero", "max_speed": 24.5, "vo2max": 50.0},
     # 3 Connor (Lateral Izquierdo)
     {"name": "Connor", "dorsal": 3, "position": "Lateral", "max_speed": 32.5, "vo2max": 59.5},
     # 4 Gines (Central)
@@ -42,8 +40,6 @@ PLAYERS_DATA = [
     {"name": "Alan", "dorsal": 11, "position": "Extremo", "max_speed": 34.0, "vo2max": 62.0},
     # 12 Talarn (Lateral / Central)
     {"name": "Talarn", "dorsal": 12, "position": "Lateral", "max_speed": 32.0, "vo2max": 58.5},
-    # 13 Luengo (Portero)
-    {"name": "Luengo", "dorsal": 13, "position": "Portero", "max_speed": 24.0, "vo2max": 49.5},
     # 14 Polaco (Mediocentro)
     {"name": "Polaco", "dorsal": 14, "position": "Mediocentro", "max_speed": 31.5, "vo2max": 61.5},
     # 15 Viana (Extremo)

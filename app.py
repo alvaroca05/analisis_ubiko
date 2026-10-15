@@ -428,6 +428,13 @@ def bootstrap_database():
         from src.services.analytics import sync_and_update_player_match_peaks
         sync_and_update_player_match_peaks(db)
 
+        # Asegurar que porteros (Estepa y Luengo) sin telemetría GPS no figuren en la base de datos
+        p_del_ids = [p.id for p in db.query(Player.id).filter(Player.name.in_(["Estepa", "Luengo"])).all()]
+        if p_del_ids:
+            db.query(PlayerMatchPeak).filter(PlayerMatchPeak.player_id.in_(p_del_ids)).delete(synchronize_session=False)
+            db.query(Player).filter(Player.id.in_(p_del_ids)).delete(synchronize_session=False)
+            db.commit()
+
     # Iniciar verificación/descarga de Chromium en segundo plano para estar listo ante clics del P.F.
     try:
         import threading
@@ -473,9 +480,18 @@ def get_cached_session_summary(session_id: int):
 
 @st.cache_data(ttl=600, show_spinner="Cargando...")
 def get_cached_players_list():
-    """Cachea la lista de futbolistas activos."""
+    """Cachea la lista de futbolistas de campo activos (excluye porteros sin telemetría GPS)."""
     with get_db() as db:
-        players = db.query(Player).filter(Player.active == True).order_by(Player.dorsal.asc()).all()
+        players = (
+            db.query(Player)
+            .filter(
+                Player.active == True,
+                Player.position != "Portero",
+                ~Player.name.in_(["Estepa", "Luengo"])
+            )
+            .order_by(Player.dorsal.asc())
+            .all()
+        )
         return [(p.id, p.dorsal, p.name, p.position, p.max_speed_kmh) for p in players]
 
 
