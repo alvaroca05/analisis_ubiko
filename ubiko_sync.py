@@ -387,8 +387,7 @@ class UbikoSyncService:
         try:
             # 1. Navegar a UBIKO
             print(f"[UBIKO] Accediendo a: {self.base_url}")
-            page.goto(self.base_url, wait_until="domcontentloaded", timeout=15000)
-            time.sleep(0.5)
+            page.goto(self.base_url, wait_until="commit", timeout=20000)
 
             # 2. Login automático si se presentan campos de login
             is_login_page = "login" in page.url.lower() or "signin" in page.url.lower() or bool(page.query_selector('input[type="password"]'))
@@ -418,10 +417,9 @@ class UbikoSyncService:
                             submit_btn.click()
                             print("[UBIKO] Credenciales enviadas, esperando autenticación...")
                             try:
-                                page.wait_for_url(lambda u: "login" not in u.lower(), timeout=10000)
+                                page.wait_for_url(lambda u: "login" not in u.lower(), timeout=12000)
                             except Exception:
                                 pass
-                            time.sleep(0.5)
                 else:
                     return {
                         "success": False,
@@ -434,10 +432,9 @@ class UbikoSyncService:
             # Si aparece selector de club o equipo (por ejemplo tras login limpio)
             try:
                 puente_genil = page.locator('text="Puente Genil", text="PUENTE GENIL", [title*="Puente Genil" i]').first
-                if puente_genil.is_visible(timeout=2000):
+                if puente_genil.is_visible(timeout=1500):
                     print("[UBIKO] Selector de equipo detectado. Seleccionando Puente Genil F.C...")
                     puente_genil.click()
-                    time.sleep(0.5)
             except Exception:
                 pass
 
@@ -449,19 +446,17 @@ class UbikoSyncService:
                 except Exception:
                     pass
 
-            # 3. Acceder al apartado de Sesiones del equipo (/team/sessions)
+            # 3. Acceder al apartado de Sesiones del equipo (/team/sessions) si aún no estamos en él
             target_sessions_url = "https://admin.ubikosports.com/team/sessions"
             if "team/sessions" not in page.url.lower():
                 print(f"[UBIKO] Navegando a la sección de sesiones del equipo: {target_sessions_url}")
                 try:
-                    page.goto(target_sessions_url, wait_until="domcontentloaded", timeout=12000)
-                    time.sleep(0.5)
+                    page.goto(target_sessions_url, wait_until="commit", timeout=20000)
                 except Exception as e_nav:
                     print(f"[UBIKO] Error navegando directamente ({e_nav}), intentando clic en menú 'Sesiones'...")
                     try:
                         sesiones_nav = page.locator("nav, header, .navbar, .menu, body").get_by_text("Sesiones", exact=False).first
                         sesiones_nav.click()
-                        time.sleep(0.5)
                     except Exception:
                         pass
 
