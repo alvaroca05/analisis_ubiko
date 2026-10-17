@@ -2,19 +2,28 @@ name: Keep Streamlit App Awake
 
 on:
   schedule:
-    - cron: '0 */6 * * *'
-  workflow_dispatch:
+    # Se ejecuta cada 4 horas automáticamente (a las 00:00, 04:00, 08:00, 12:00, 16:00, 20:00 UTC)
+    - cron: '0 */4 * * *'
+  workflow_dispatch: # Permite ejecutarlo manualmente con un clic en GitHub Actions
 
 jobs:
   keep_alive:
     runs-on: ubuntu-latest
     steps:
-      - name: Ping Streamlit App
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
         run: |
-          echo "Pinging Streamlit app..."
-          curl -s -L --max-redirs 5 \
-            -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
-            --cookie-jar /tmp/cookies.txt \
-            --cookie /tmp/cookies.txt \
-            "https://analisis-ubiko.streamlit.app" > /dev/null || true
-          echo "Ping completed successfully."
+          python -m pip install --upgrade pip
+          pip install requests playwright
+          playwright install --with-deps chromium
+
+      - name: Ping and Auto-Wake Streamlit App
+        run: |
+          python src/utils/keep_alive.py
